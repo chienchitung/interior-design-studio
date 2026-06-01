@@ -1,0 +1,8 @@
+{
+  "name": "Interior Design Studio",
+  "description": "A professional AI-powered interior design studio. Upload floor plans and real-world scenes to generate photorealistic 3D interior design visualizations using Google Gemini.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
