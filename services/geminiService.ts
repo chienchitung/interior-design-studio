@@ -178,14 +178,15 @@ ${imageReferenceInstruction}`;
       }
     });
 
-    if (response.candidates && response.candidates[0].content.parts) {
-        for (const part of response.candidates[0].content.parts) {
+    const candidateParts = response.candidates?.[0]?.content?.parts;
+    if (candidateParts) {
+        for (const part of candidateParts) {
             if (part.inlineData && part.inlineData.data) {
                 return `data:image/png;base64,${part.inlineData.data}`;
             }
         }
     }
-    
+
     throw new Error("No image generated in the response.");
 
   } catch (error) {
@@ -274,8 +275,9 @@ export const editDesignImage = async (base64Image: string, prompt: string): Prom
       }
     });
 
-    if (response.candidates && response.candidates[0].content.parts) {
-        for (const part of response.candidates[0].content.parts) {
+    const editCandidateParts = response.candidates?.[0]?.content?.parts;
+    if (editCandidateParts) {
+        for (const part of editCandidateParts) {
             if (part.inlineData && part.inlineData.data) {
                 return `data:image/png;base64,${part.inlineData.data}`;
             }
