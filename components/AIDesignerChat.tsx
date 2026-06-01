@@ -17,6 +17,10 @@ const QUICK_REPLIES: Record<number, string[]> = {
 
 const SUMMARY_START = '[設計需求摘要開始]';
 const SUMMARY_END = '[設計需求摘要結束]';
+const INITIAL_MESSAGE: ChatMessage = {
+  role: 'assistant',
+  content: '你好，我會用幾個問題快速整理你的設計需求。可以直接選下方選項，也可以用文字補充。',
+};
 
 const extractSummary = (text: string): string | null => {
   const start = text.indexOf(SUMMARY_START);
@@ -26,7 +30,7 @@ const extractSummary = (text: string): string | null => {
 };
 
 const AIDesignerChat: React.FC<Props> = ({ onClose, onApplySummary }) => {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([INITIAL_MESSAGE]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [questionIndex, setQuestionIndex] = useState(0);
@@ -34,35 +38,21 @@ const AIDesignerChat: React.FC<Props> = ({ onClose, onApplySummary }) => {
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // AI sends opening greeting on mount
-  useEffect(() => {
-    const greet = async () => {
-      setIsLoading(true);
-      try {
-        const reply = await chatWithDesigner([], '你好，請開始設計訪談。');
-        setMessages([{ role: 'assistant', content: reply }]);
-      } catch (e: any) {
-        setError(e.message || '連線失敗，請確認 API Key 設定。');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    greet();
-  }, []);
+  const requestInFlightRef = useRef(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
   const send = async (text: string) => {
-    if (!text.trim() || isLoading) return;
+    if (!text.trim() || isLoading || requestInFlightRef.current) return;
     setInput('');
     setError(null);
 
     const userMsg: ChatMessage = { role: 'user', content: text };
     const nextHistory = [...messages, userMsg];
     setMessages(nextHistory);
+    requestInFlightRef.current = true;
     setIsLoading(true);
 
     try {
@@ -83,6 +73,7 @@ const AIDesignerChat: React.FC<Props> = ({ onClose, onApplySummary }) => {
     } catch (e: any) {
       setError(e.message || '回應失敗，請再試一次。');
     } finally {
+      requestInFlightRef.current = false;
       setIsLoading(false);
       inputRef.current?.focus();
     }

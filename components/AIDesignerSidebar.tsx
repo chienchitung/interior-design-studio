@@ -11,6 +11,7 @@ import ImageUpload from './ImageUpload';
 import Button from './Button';
 
 interface Props {
+  isActive: boolean;
   floorPlan: File | null;
   realScenes: File[];
   onFloorPlanChange: (f: File | null) => void;
@@ -28,6 +29,11 @@ const extractRenderPrompt = (text: string): string | null => {
 const stripRenderTag = (text: string) =>
   text.replace(/\n?\[渲染指令:[\s\S]+?\][\s]*$/, '').trim();
 
+const INITIAL_MESSAGE: ChatMessage = {
+  role: 'assistant',
+  content: '你好，我是你的 AI 室內設計師。先把平面圖或現場照片交給我，我會陪你一起梳理空間條件、生活需求與喜歡的風格，慢慢整理出適合這個家的設計方向。',
+};
+
 // AI designer avatar
 const DesignerAvatar = () => (
   <div className="w-6 h-6 bg-neutral-700 border border-neutral-600 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -41,6 +47,7 @@ const DesignerAvatar = () => (
 );
 
 const AIDesignerSidebar: React.FC<Props> = ({
+  isActive,
   floorPlan,
   realScenes,
   onFloorPlanChange,
@@ -49,7 +56,7 @@ const AIDesignerSidebar: React.FC<Props> = ({
   onGenerate,
   isGenerating,
 }) => {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([INITIAL_MESSAGE]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +81,8 @@ const AIDesignerSidebar: React.FC<Props> = ({
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const prevFloorPlanName = useRef('');
+  const prevRealScenesCount = useRef(0);
+  const chatInFlightRef = useRef(false);
 
   // Auto-resize textarea to content (max 5 lines)
   const adjustTextareaHeight = () => {
@@ -82,41 +91,14 @@ const AIDesignerSidebar: React.FC<Props> = ({
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 110)}px`;
   };
-  const initialized = useRef(false);
-
   // Auto-scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading, analyzingRooms]);
 
-  // Greet once on mount
-  useEffect(() => {
-    if (initialized.current) return;
-    initialized.current = true;
-    const greet = async () => {
-      setIsLoading(true);
-      try {
-        const reply = await chatWithDesigner(
-          [],
-          '你好，請先引導我開始空間設計流程。',
-          undefined,
-          aiContext,
-          roomList.length > 0 ? roomList : undefined
-        );
-        setMessages([{ role: 'assistant', content: reply }]);
-      } catch (e: any) {
-        setError(e.message);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    greet();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // When floor plan changes → analyze rooms
   useEffect(() => {
-    if (!floorPlan || floorPlan.name === prevFloorPlanName.current) return;
+    if (!isActive || !floorPlan || floorPlan.name === prevFloorPlanName.current) return;
     prevFloorPlanName.current = floorPlan.name;
 
     const analyze = async () => {
@@ -131,23 +113,16 @@ const AIDesignerSidebar: React.FC<Props> = ({
         const rooms = await analyzeFloorPlanRooms(files);
         setRoomList(rooms);
 
-        // Notify AI about what was found
         const roomNames = rooms.map(r => r.zhName).join('、');
-        const userMsg: ChatMessage = {
-          role: 'user',
-          content: `我已上傳平面配置圖，系統識別到：${roomNames}。`
-        };
-        const newHistory = [...messages, userMsg];
-        setMessages(newHistory);
-
-        const reply = await chatWithDesigner(
-          messages,
-          `我已上傳平面配置圖，系統識別到：${roomNames}。請問我應該先渲染哪個空間？`,
-          undefined,
-          aiContext,
-          rooms
-        );
-        setMessages([...newHistory, { role: 'assistant', content: reply }]);
+        setMessages(prev => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: roomNames
+              ? `我已識別到：${roomNames}。請選擇想先渲染的空間，接著我會幫你整理視角、採光與風格需求。`
+              : '我已讀取平面圖，但沒有穩定識別到房間名稱。你可以直接輸入想渲染的空間，例如客廳、主臥或廚房。',
+          },
+        ]);
       } catch (e: any) {
         setError('平面圖分析失敗：' + (e.message || '請再試一次'));
       } finally {
@@ -156,47 +131,35 @@ const AIDesignerSidebar: React.FC<Props> = ({
     };
     analyze();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [floorPlan]);
+  }, [isActive, floorPlan]);
 
   // When real scenes change (and floor plan already present), notify AI
   useEffect(() => {
-    if (realScenes.length === 0 || !floorPlan) return;
+    if (!isActive || realScenes.length === 0 || !floorPlan) return;
+    if (prevRealScenesCount.current === realScenes.length) return;
+    prevRealScenesCount.current = realScenes.length;
     if (messages.length === 0) return;
 
-    const notify = async () => {
-      const userMsg: ChatMessage = {
-        role: 'user',
-        content: `我另外上傳了 ${realScenes.length} 張實景照片作為參考。`
-      };
-      const newHistory = [...messages, userMsg];
-      setMessages(newHistory);
-      setIsLoading(true);
-      try {
-        const reply = await chatWithDesigner(
-          messages,
-          `我另外上傳了 ${realScenes.length} 張實景照片作為參考。`,
-          realScenes,
-          aiContext,
-          roomList.length > 0 ? roomList : undefined
-        );
-        setMessages([...newHistory, { role: 'assistant', content: reply }]);
-      } catch {
-        // silent fail for scene upload notification
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    notify();
+    setMessages(prev => [
+      ...prev,
+      {
+        role: 'assistant',
+        content: `已加入 ${realScenes.length} 張實景照片作為參考。下一步請選擇空間或描述你的設計偏好。`,
+      },
+    ]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [realScenes.length]);
+  }, [isActive, realScenes.length]);
 
   // Handle room selection from quick buttons
   const handleSelectRoom = useCallback(async (room: RoomInfo) => {
+    if (chatInFlightRef.current || isLoading) return;
+
     setSelectedRoom(room);
     const userMsg = `我想渲染${room.zhName}。`;
     const userChatMsg: ChatMessage = { role: 'user', content: userMsg };
     const newHistory = [...messages, userChatMsg];
     setMessages(newHistory);
+    chatInFlightRef.current = true;
     setIsLoading(true);
     try {
       const reply = await chatWithDesigner(
@@ -213,13 +176,14 @@ const AIDesignerSidebar: React.FC<Props> = ({
     } catch (e: any) {
       setError(e.message);
     } finally {
+      chatInFlightRef.current = false;
       setIsLoading(false);
     }
-  }, [messages, aiContext, roomList]);
+  }, [messages, aiContext, roomList, isLoading]);
 
   // Send user message
   const send = useCallback(async (text: string) => {
-    if (!text.trim() || isLoading) return;
+    if (!text.trim() || isLoading || chatInFlightRef.current) return;
     setInput('');
     // Reset textarea height after clearing
     if (inputRef.current) {
@@ -230,6 +194,7 @@ const AIDesignerSidebar: React.FC<Props> = ({
     const userMsg: ChatMessage = { role: 'user', content: text };
     const nextHistory = [...messages, userMsg];
     setMessages(nextHistory);
+    chatInFlightRef.current = true;
     setIsLoading(true);
 
     try {
@@ -247,20 +212,20 @@ const AIDesignerSidebar: React.FC<Props> = ({
     } catch (e: any) {
       setError(e.message || '回應失敗，請再試一次。');
     } finally {
+      chatInFlightRef.current = false;
       setIsLoading(false);
       inputRef.current?.focus();
     }
   }, [messages, isLoading, aiContext, roomList]);
 
   const clearAll = () => {
-    setMessages([]);
+    setMessages([INITIAL_MESSAGE]);
     setRoomList([]);
     setSelectedRoom(null);
     setRenderPrompt('');
     setError(null);
     prevFloorPlanName.current = '';
-    initialized.current = false;
-    setTimeout(() => { initialized.current = false; }, 0);
+    prevRealScenesCount.current = 0;
   };
 
   return (

@@ -2,6 +2,8 @@ import { GoogleGenAI } from "@google/genai";
 import { DesignConfig } from '../types';
 
 const USER_API_KEY_STORAGE_KEY = 'interior-design-studio.geminiApiKey';
+const TEXT_MODEL = 'gemini-2.5-flash';
+const IMAGE_MODEL = 'gemini-3-pro-image';
 
 const getGeminiApiKey = (): string => {
   const userApiKey = typeof localStorage !== 'undefined'
@@ -13,7 +15,36 @@ const getGeminiApiKey = (): string => {
     throw new Error("請先設定 Gemini API Key。");
   }
 
-  return apiKey;
+  const trimmedKey = apiKey.trim();
+  if (!trimmedKey.startsWith('AIza')) {
+    throw new Error("Gemini API Key 格式看起來不正確。請使用 Google AI Studio 產生的 AIza... 開頭 API Key。");
+  }
+
+  return trimmedKey;
+};
+
+const normalizeGeminiError = (error: unknown): Error => {
+  const err = error as { message?: string; status?: number; code?: number };
+  const raw = [
+    err?.message,
+    String(err?.status || ''),
+    String(err?.code || ''),
+    typeof error === 'string' ? error : '',
+  ].join(' ');
+
+  if (raw.includes('RESOURCE_EXHAUSTED') || raw.includes('429') || raw.toLowerCase().includes('quota')) {
+    return new Error("Gemini API 已達到額度、速率限制或 spend cap。請到 Google AI Studio / Cloud Billing 檢查專案額度，或換到未被封鎖的新 Google Cloud project。");
+  }
+
+  if (raw.includes('API_KEY_INVALID') || raw.includes('400') || raw.toLowerCase().includes('api key not valid')) {
+    return new Error("Gemini API Key 無效。請確認貼上的是 AIza... 開頭的 API Key，且不是 OAuth token 或其他憑證。");
+  }
+
+  if (raw.includes('PERMISSION_DENIED') || raw.includes('403')) {
+    return new Error("Gemini API 權限被拒絕。請確認此 API Key 所屬專案已啟用 Gemini API，並且沒有被 spend cap 或 API restrictions 擋住。");
+  }
+
+  return error instanceof Error ? error : new Error("Gemini API 呼叫失敗，請稍後再試。");
 };
 
 // Helper to convert file to base64
@@ -68,7 +99,7 @@ export const extractSpatialContextForRendering = async (
   });
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3.5-flash',
+    model: TEXT_MODEL,
     contents: { parts }
   });
 
@@ -166,7 +197,7 @@ ${imageReferenceInstruction}`;
     parts.push({ text: promptText });
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-image',
+      model: IMAGE_MODEL,
       contents: {
         parts: parts
       },
@@ -191,7 +222,7 @@ ${imageReferenceInstruction}`;
 
   } catch (error) {
     console.error("Gemini API Error:", error);
-    throw error;
+    throw normalizeGeminiError(error);
   }
 };
 
@@ -208,7 +239,7 @@ export const analyzeRoomImages = async (files: File[]): Promise<string> => {
     parts.push({ text: "Analyze these images for interior design. Identify: 1. Is this a floor plan or real photo? 2. Room type/function 3. Key architectural elements (windows, doors, wall layout). 4. Suggested furniture placement based on structure. Keep it concise and structured." });
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash', 
+      model: TEXT_MODEL, 
       contents: {
         parts: parts
       }
@@ -217,7 +248,7 @@ export const analyzeRoomImages = async (files: File[]): Promise<string> => {
     return response.text || "Could not analyze image.";
   } catch (error) {
     console.error("Analysis Error:", error);
-    throw error;
+    throw normalizeGeminiError(error);
   }
 };
 
@@ -242,7 +273,7 @@ export const editDesignImage = async (base64Image: string, prompt: string): Prom
     }
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-image',
+      model: IMAGE_MODEL,
       contents: {
         parts: [
           {
@@ -286,7 +317,7 @@ export const editDesignImage = async (base64Image: string, prompt: string): Prom
     throw new Error("No image generated from edit.");
   } catch (error) {
     console.error("Edit Error:", error);
-    throw error;
+    throw normalizeGeminiError(error);
   }
 };
 
@@ -310,12 +341,13 @@ export interface RoomInfo {
 
 // Analyse floor plan → return structured room list
 export const analyzeFloorPlanRooms = async (files: File[]): Promise<RoomInfo[]> => {
-  const ai = new GoogleGenAI({ apiKey: getGeminiApiKey() });
-  const parts: any[] = [];
-  for (const file of files) parts.push(await fileToPart(file));
+  try {
+    const ai = new GoogleGenAI({ apiKey: getGeminiApiKey() });
+    const parts: any[] = [];
+    for (const file of files) parts.push(await fileToPart(file));
 
-  parts.push({
-    text: `請分析這張平面配置圖，識別所有主要空間。
+    parts.push({
+      text: `請分析這張平面配置圖，識別所有主要空間。
 
 嚴格按照以下格式輸出，每個空間一行，三個欄位用「|」分隔：
 中文名稱|英文識別碼|空間描述
@@ -332,59 +364,62 @@ export const analyzeFloorPlanRooms = async (files: File[]): Promise<RoomInfo[]> 
 次臥室|bedroom_second|約3×3m，東側窗，單人床
 廚房|kitchen|L形廚台，爐台在南牆
 衛浴|bathroom|馬桶、洗手台、淋浴區`
-  });
+    });
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3.5-flash',
-    contents: { parts }
-  });
+    const response = await ai.models.generateContent({
+      model: TEXT_MODEL,
+      contents: { parts }
+    });
 
-  const raw = response.text || '';
+    const raw = response.text || '';
 
-  // Robust multi-format parser
-  const rooms: RoomInfo[] = [];
+    // Robust multi-format parser
+    const rooms: RoomInfo[] = [];
 
-  for (const line of raw.split('\n')) {
-    const cleaned = line
-      .replace(/^\s*[-*•\d.]+\s*/, '')  // strip list markers
-      .replace(/\*\*/g, '')             // strip bold markers
-      .replace(/\*/g, '')               // strip italic markers
-      .trim();
+    for (const line of raw.split('\n')) {
+      const cleaned = line
+        .replace(/^\s*[-*•\d.]+\s*/, '')  // strip list markers
+        .replace(/\*\*/g, '')             // strip bold markers
+        .replace(/\*/g, '')               // strip italic markers
+        .trim();
 
-    if (!cleaned || cleaned.length < 3) continue;
+      if (!cleaned || cleaned.length < 3) continue;
 
-    // Try pipe-separated format: 名稱|key|description
-    if (cleaned.includes('|')) {
-      const p = cleaned.split('|').map(s => s.trim().replace(/\*\*/g, '').replace(/\*/g, ''));
-      if (p[0] && p[0].length > 0) {
-        rooms.push({
-          zhName: p[0],
-          key: p[1]?.replace(/[^a-z0-9_]/g, '') || 'room_' + rooms.length,
-          description: p[2] || '',
-        });
+      // Try pipe-separated format: 名稱|key|description
+      if (cleaned.includes('|')) {
+        const p = cleaned.split('|').map(s => s.trim().replace(/\*\*/g, '').replace(/\*/g, ''));
+        if (p[0] && p[0].length > 0) {
+          rooms.push({
+            zhName: p[0],
+            key: p[1]?.replace(/[^a-z0-9_]/g, '') || 'room_' + rooms.length,
+            description: p[2] || '',
+          });
+        }
+        continue;
       }
-      continue;
+
+      // Fallback: try to detect Chinese room names on their own line
+      // e.g. "客廳：約5×4m" or "1. 客廳"
+      const nameMatch = cleaned.match(/^([客主次臥廚衛浴餐書工儲陽台玄關走廊樓梯][^\n：:（(]{0,6})/);
+      if (nameMatch) {
+        const zhName = nameMatch[1].trim();
+        if (!rooms.find(r => r.zhName === zhName)) {
+          rooms.push({
+            zhName,
+            key: 'room_' + rooms.length,
+            description: cleaned.replace(zhName, '').replace(/^[：:（()\s]+/, '').trim(),
+          });
+        }
+      }
     }
 
-    // Fallback: try to detect Chinese room names on their own line
-    // e.g. "客廳：約5×4m" or "1. 客廳"
-    const nameMatch = cleaned.match(/^([客主次臥廚衛浴餐書工儲陽台玄關走廊樓梯][^\n：:（(]{0,6})/);
-    if (nameMatch) {
-      const zhName = nameMatch[1].trim();
-      if (!rooms.find(r => r.zhName === zhName)) {
-        rooms.push({
-          zhName,
-          key: 'room_' + rooms.length,
-          description: cleaned.replace(zhName, '').replace(/^[：:（()\s]+/, '').trim(),
-        });
-      }
-    }
+    return rooms;
+  } catch (error) {
+    throw normalizeGeminiError(error);
   }
-
-  return rooms;
 };
 
-const buildSystemInstruction = (ctx?: DesignContext, rooms?: RoomInfo[]) => `你是一位專業的室內設計師，任務是透過對話了解屋主需求，並將平面圖轉化為精準的 2D 寫實渲染圖。
+const buildSystemInstruction = (ctx?: DesignContext, rooms?: RoomInfo[]) => `你是一位資深、細心且有親和力的 AI 室內設計師。你的任務是透過自然對話理解屋主的生活方式、空間條件與風格偏好，最後將需求整理成精準的 2D 寫實渲染指令。
 
 ${rooms && rooms.length > 0 ? `【已識別的平面圖空間】
 ${rooms.map(r => `• ${r.zhName}（${r.key}）：${r.description}`).join('\n')}
@@ -408,7 +443,8 @@ ${rooms.map(r => `• ${r.zhName}（${r.key}）：${r.description}`).join('\n')}
 [渲染指令: 生成一張{空間名稱}的照片級室內設計渲染圖。視角：{具體視角描述}。空間：{尺寸比例}，{採光描述}。家具：{嚴格依據平面圖的家具位置}。風格：{屋主選定的風格}，色調：{色彩描述}。{其他氛圍細節}。]
 
 注意事項：
-- 語氣親切專業，使用繁體中文
+- 語氣親切、溫和、專業，有設計師的判斷力與陪伴感，像在陪屋主一起把家的樣子慢慢釐清，使用繁體中文
+- 少用工具式說明，多用自然提問引導屋主描述生活情境、喜好與限制
 - 每次回覆聚焦一個重點，2-3句話（渲染指令除外）
 - 渲染指令要詳細具體，約80-120字
 - 【重要】嚴禁使用 Markdown 格式：不可使用 **粗體**、*斜體*、# 標題、- 列點、數字編號等符號，只輸出純文字`;
@@ -420,34 +456,38 @@ export const chatWithDesigner = async (
   context?: DesignContext,
   rooms?: RoomInfo[]
 ): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: getGeminiApiKey() });
+  try {
+    const ai = new GoogleGenAI({ apiKey: getGeminiApiKey() });
 
-  const userParts: any[] = [];
+    const userParts: any[] = [];
 
-  if (images && images.length > 0) {
-    for (const file of images) {
-      const part = await fileToPart(file);
-      userParts.push(part);
+    if (images && images.length > 0) {
+      for (const file of images) {
+        const part = await fileToPart(file);
+        userParts.push(part);
+      }
     }
+
+    userParts.push({ text: userMessage });
+
+    const contents = [
+      ...history.map(msg => ({
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: msg.content }]
+      })),
+      { role: 'user', parts: userParts }
+    ];
+
+    const response = await ai.models.generateContent({
+      model: TEXT_MODEL,
+      contents,
+      config: {
+        systemInstruction: buildSystemInstruction(context, rooms),
+      }
+    });
+
+    return response.text || '抱歉，我無法回應，請再試一次。';
+  } catch (error) {
+    throw normalizeGeminiError(error);
   }
-
-  userParts.push({ text: userMessage });
-
-  const contents = [
-    ...history.map(msg => ({
-      role: msg.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: msg.content }]
-    })),
-    { role: 'user', parts: userParts }
-  ];
-
-  const response = await ai.models.generateContent({
-    model: 'gemini-3.5-flash',
-    contents,
-    config: {
-      systemInstruction: buildSystemInstruction(context, rooms),
-    }
-  });
-
-  return response.text || '抱歉，我無法回應，請再試一次。';
 };

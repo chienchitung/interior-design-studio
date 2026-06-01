@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Wand2, Download, Maximize2, RefreshCw, Key, ChevronRight, CheckCircle2, ScanEye, Sparkles, Send, Armchair, X, Undo2, Redo2, History, Eye, EyeOff, Box, Lightbulb, SlidersHorizontal } from 'lucide-react';
 import ImageUpload from './components/ImageUpload';
 import Button from './components/Button';
@@ -30,6 +30,9 @@ const App: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const generatingRef = useRef(false);
+  const analyzingRef = useRef(false);
+  const editingRef = useRef(false);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState(getStoredApiKey);
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
@@ -146,6 +149,8 @@ const App: React.FC = () => {
   };
 
   const handleAnalyze = async () => {
+    if (analyzingRef.current || isAnalyzing) return;
+
     const filesToAnalyze: File[] = [];
     if (config.floorPlan) filesToAnalyze.push(config.floorPlan);
     if (config.realScenes.length > 0) filesToAnalyze.push(...config.realScenes);
@@ -155,6 +160,7 @@ const App: React.FC = () => {
       return;
     }
 
+    analyzingRef.current = true;
     setIsAnalyzing(true);
     setError(null);
     try {
@@ -167,16 +173,20 @@ const App: React.FC = () => {
     } catch (err) {
       handleError(err);
     } finally {
+      analyzingRef.current = false;
       setIsAnalyzing(false);
     }
   };
 
   const handleGenerate = async () => {
+    if (generatingRef.current || isGenerating) return;
+
     if (!config.floorPlan && config.realScenes.length === 0) {
       setError("Please upload at least a floor plan or a real scene image.");
       return;
     }
 
+    generatingRef.current = true;
     setIsGenerating(true);
     setError(null);
     setHistory([]);
@@ -217,6 +227,7 @@ const App: React.FC = () => {
     } catch (err: any) {
       handleError(err);
     } finally {
+      generatingRef.current = false;
       setIsGenerating(false);
     }
   };
@@ -240,8 +251,10 @@ const App: React.FC = () => {
   };
 
   const handleMagicEdit = async () => {
+    if (editingRef.current || isEditing) return;
     if (!displayImage || !editPrompt.trim()) return;
 
+    editingRef.current = true;
     setIsEditing(true);
     setError(null);
 
@@ -266,6 +279,7 @@ const App: React.FC = () => {
     } catch (err) {
       handleError(err);
     } finally {
+      editingRef.current = false;
       setIsEditing(false);
     }
   };
@@ -464,10 +478,10 @@ const App: React.FC = () => {
                 <div>
                   <div className="text-[10px] font-bold text-indigo-400 tracking-wider uppercase">設計師觀點</div>
                   <h3 className="text-sm sm:text-base font-bold text-white mt-0.5">
-                    {activeWorkflowStep === 1 && "格局與硬裝基礎指南"}
-                    {activeWorkflowStep === 2 && "AI 設計訪談指南"}
-                    {activeWorkflowStep === 3 && "2D 視覺風格渲染指南"}
-                    {activeWorkflowStep === 4 && "3D 軟裝配置佈局指南"}
+                    {activeWorkflowStep === 1 && "實景上傳與格局分析指南"}
+                    {activeWorkflowStep === 2 && "需求確認與設計訪談指南"}
+                    {activeWorkflowStep === 3 && "2D 視覺渲染與硬裝定調指南"}
+                    {activeWorkflowStep === 4 && "3D 軟裝配置與動線校準指南"}
                   </h3>
                 </div>
               </div>
@@ -483,16 +497,16 @@ const App: React.FC = () => {
             <div className="flex-1 overflow-y-auto p-6 space-y-4 pr-5 scrollbar-thin scrollbar-thumb-neutral-800 scrollbar-track-transparent">
               <div className="bg-neutral-950 p-4 rounded-xl border border-neutral-800 space-y-3">
                 <span className="text-[10px] font-bold tracking-widest text-indigo-300 uppercase bg-indigo-950 px-2.5 py-1 rounded border border-indigo-900 block w-max">
-                  {activeWorkflowStep === 1 && "第一步主要攻略"}
-                  {activeWorkflowStep === 2 && "第二步主要攻略"}
-                  {activeWorkflowStep === 3 && "第三步主要攻略"}
-                  {activeWorkflowStep === 4 && "第四步主要攻略"}
+                  {activeWorkflowStep === 1 && "第一步：實景上傳"}
+                  {activeWorkflowStep === 2 && "第二步：AI 設計訪談"}
+                  {activeWorkflowStep === 3 && "第三步：2D 視覺渲染"}
+                  {activeWorkflowStep === 4 && "第四步：3D 軟裝配置"}
                 </span>
                 <p className="text-xs sm:text-sm text-neutral-200 leading-relaxed font-normal">
-                  {activeWorkflowStep === 1 && "「觀察採光、承重牆、面高比例，決定空間大架構骨架。」請上傳平面格局圖與當前屋況實況照片，AI 將自動識別空間格局。"}
-                  {activeWorkflowStep === 2 && "「透過對話釐清需求，讓 AI 設計師深入了解您的生活習慣與風格偏好。」切換至 AI 設計師模式，上傳平面圖後選擇目標空間，AI 將引導您完成設計訪談。"}
-                  {activeWorkflowStep === 3 && "「定調全屋漆色、本體材質（石材、地板）。」根據 AI 訪談結果或手動設定，一鍵生成照片級高度擬真效果，支援隨性局部微調設計。"}
-                  {activeWorkflowStep === 4 && "「家具即是靈魂。佈局走道淨寬、材質搭配以確保生活便利性。」拖曳沙發、桌毯，切換精確的高寬參數或牆地材質，完全掌握軟裝實景。"}
+                  {activeWorkflowStep === 1 && "「先把現況講清楚，設計才有準星。」上傳平面配置圖與實景照片，優先確認格局、採光、門窗位置與既有家具，讓後續訪談與渲染都建立在同一份空間事實上。"}
+                  {activeWorkflowStep === 2 && "「需求不是問卷，而是生活方式的翻譯。」透過 AI 設計訪談整理家庭成員、使用情境、風格偏好、預算與不可妥協條件，再轉成可執行的設計方向。"}
+                  {activeWorkflowStep === 3 && "「2D 渲染負責定調，不急著排滿所有物件。」先確認硬裝、色彩、牆地材、光線氛圍與主要家具語彙，再用局部微調把視覺方向收斂到可施工、可溝通的版本。"}
+                  {activeWorkflowStep === 4 && "「軟裝配置決定日常是否好用。」在 3D 沙盒中檢查家具尺度、走道寬度、開門半徑與視線關係，讓漂亮的畫面落回真實可居住的動線。"}
                 </p>
               </div>
 
@@ -504,24 +518,24 @@ const App: React.FC = () => {
                 </h4>
                 <ul className="text-xs text-neutral-400 list-disc list-inside space-y-1.5 pl-1 leading-relaxed">
                   {activeWorkflowStep === 1 && [
-                    "承重主牆切勿擅自拆移，非承重隔間則可拆除以極大化公領域通透感。",
-                    "廚衛排煙、排水管路位置為硬碰硬設計，格局調整時應盡量保持就近配置以絕後患。",
-                    "大面積引入自然採光能讓小空間在感官尺度上直接放大 30% 以上。"
+                    "平面圖負責尺寸與格局，實景照片負責材質、天花高度、採光與現場限制，兩者一起上傳判讀會更穩。",
+                    "拍攝實景時盡量涵蓋四個角落、窗邊、門口與主要牆面，避免只拍局部美照導致 AI 誤判空間比例。",
+                    "上傳前先確認圖面方向與房間名稱，後續選擇目標空間時才不會把客廳、餐廳或臥室混在一起。"
                   ].map((tip, idx) => <li key={idx} className="marker:text-indigo-500">{tip}</li>)}
                   {activeWorkflowStep === 2 && [
-                    "與 AI 設計師溝通時，盡量具體描述生活習慣，例如「常在客廳工作」比「需要書桌」更能幫助 AI 給出精準建議。",
-                    "告知 AI 設計師家庭成員組成（如有長輩或小孩），可針對安全動線、收納高度提供專屬規劃建議。",
-                    "預算範圍越清楚，AI 越能推薦性價比最高的材質與工法組合，避免設計方案超出執行可能。"
+                    "描述生活情境要比描述家具更有效，例如「常在餐桌工作」比「想要書桌」更容易推導出真正需要的配置。",
+                    "先講清楚家庭成員、寵物、收納量、作息與清潔習慣，AI 才能避開只好看但不好住的方案。",
+                    "把預算、偏好風格與不能接受的元素一起說明，可減少來回修正，也能讓渲染指令更精準。"
                   ].map((tip, idx) => <li key={idx} className="marker:text-indigo-500">{tip}</li>)}
                   {activeWorkflowStep === 3 && [
-                    "經典大師配色黃金率：主色（硬裝）70% + 搭配色（大型家具）25% + 亮眼點綴色 5%。",
-                    "石材大板紋理與實木材質色澤切忌龐雜，色系統一延伸（如一體化電視牆）更能顯露不凡奢華。",
-                    "使用 AI 局部微調（Refine）時，增加如「一字型條狀反光燈帶」能輕鬆烘托極致層次感。"
+                    "2D 渲染先看大方向：牆地色、木作比例、燈光氣氛與主家具體量，比小飾品是否精準更重要。",
+                    "材質不要一次堆太多，地板、主牆、櫃體與大型家具最好先控制在 2 至 3 個主要材質系統內。",
+                    "局部微調時一次只改一個目標，例如沙發、牆色或燈帶，較容易比較版本差異並保留原本滿意的畫面。"
                   ].map((tip, idx) => <li key={idx} className="marker:text-indigo-500">{tip}</li>)}
                   {activeWorkflowStep === 4 && [
-                    "一般走道動線標準淨寬保留 65 - 80 cm，主幹道雙人交會需留 90 - 120 cm 以確保行進無阻。",
-                    "冰箱與電視櫃開門半徑、吧檯拉抽半徑等動態機能空間，請利用 3D 互動沙盒審慎模擬推演。",
-                    "地毯尺寸需覆蓋沙發前腳下半邊或橫向超出沙發 20 cm，方能凝聚高尚的會客核心氣息。"
+                    "一般走道建議保留 65 至 80 cm，主要通道或雙人交會區最好抓到 90 至 120 cm。",
+                    "家具不要只看正面效果，還要檢查抽屜、櫃門、冰箱門與椅子後退時是否會撞到動線。",
+                    "地毯、茶几、沙發和邊几要一起看尺度；單件家具漂亮，不代表整組放進空間後比例舒服。"
                   ].map((tip, idx) => <li key={idx} className="marker:text-indigo-500">{tip}</li>)}
                 </ul>
               </div>
@@ -582,6 +596,7 @@ const App: React.FC = () => {
         {/* AI Designer mode — always mounted (CSS hidden when inactive) to preserve chat state */}
         <div className={`flex-1 min-h-0 p-4 flex flex-col overflow-hidden ${sidebarMode === 'ai' ? '' : 'hidden'}`}>
             <AIDesignerSidebar
+              isActive={sidebarMode === 'ai'}
               floorPlan={config.floorPlan}
               realScenes={config.realScenes}
               onFloorPlanChange={(f) => setConfig(prev => ({ ...prev, floorPlan: f }))}
@@ -593,12 +608,15 @@ const App: React.FC = () => {
                 hasRealScene: config.realScenes.length > 0,
               }}
               onGenerate={async (aiPrompt) => {
+                if (generatingRef.current || isGenerating) return;
+
                 // Generate using images from config + AI-collected prompt
                 // Does NOT modify config.prompt — fully isolated
                 if (!config.floorPlan && config.realScenes.length === 0) {
                   setError('請先上傳平面配置圖或實景照片。');
                   return;
                 }
+                generatingRef.current = true;
                 setIsGenerating(true);
                 setError(null);
                 setHistory([]);
@@ -617,6 +635,7 @@ const App: React.FC = () => {
                 } catch (err: any) {
                   handleError(err);
                 } finally {
+                  generatingRef.current = false;
                   setIsGenerating(false);
                 }
               }}
@@ -760,8 +779,7 @@ const App: React.FC = () => {
             >
               {isGenerating ? '生成渲染中...' : '渲染設計方案'}
             </Button>
-            <p className="text-[10px] text-neutral-500 mt-2 text-center flex items-center gap-1">
-              <Sparkles size={11} className="text-indigo-400 animate-pulse" />
+            <p className="text-[10px] text-neutral-500 mt-2 text-center">
               生成高解析擬真 3D 空間圖
             </p>
           </div>
