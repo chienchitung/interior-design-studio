@@ -1,9 +1,9 @@
 import { GoogleGenAI } from "@google/genai";
-import { DesignConfig } from '../types';
+import { DesignChecklistItem, DesignConfig, ProjectBrief } from '../types';
 
 const USER_API_KEY_STORAGE_KEY = 'interior-design-studio.geminiApiKey';
 const TEXT_MODEL = 'gemini-2.5-flash';
-const IMAGE_MODEL = 'gemini-3-pro-image';
+const IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
 
 const getGeminiApiKey = (): string => {
   const userApiKey = typeof localStorage !== 'undefined'
@@ -16,8 +16,8 @@ const getGeminiApiKey = (): string => {
   }
 
   const trimmedKey = apiKey.trim();
-  if (!trimmedKey.startsWith('AIza')) {
-    throw new Error("Gemini API Key 格式看起來不正確。請使用 Google AI Studio 產生的 AIza... 開頭 API Key。");
+  if (!trimmedKey.startsWith('AIza') && !trimmedKey.startsWith('AQ.')) {
+    throw new Error("Gemini API Key 格式看起來不正確。請使用 Google AI Studio 產生的 API Key（AIza... 或 AQ. 開頭）。");
   }
 
   return trimmedKey;
@@ -47,29 +47,89 @@ const normalizeGeminiError = (error: unknown): Error => {
   return error instanceof Error ? error : new Error("Gemini API 呼叫失敗，請稍後再試。");
 };
 
-// Helper to convert file to base64
-const fileToPart = async (file: File): Promise<{ inlineData: { data: string; mimeType: string } }> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (typeof reader.result === 'string') {
-        const base64Data = reader.result.split(',')[1];
-        // Use generic image/jpeg if type is missing, or trust the file type
-        const mimeType = file.type || "image/jpeg";
-        resolve({
-          inlineData: {
-            data: base64Data,
-            mimeType: mimeType,
-          },
-        });
-      } else {
-        reject(new Error("Failed to read file"));
+// Resize image to max 1024px on longest dimension before encoding.
+// PNG stays PNG (preserves floor-plan line quality); all other formats → JPEG 85%.
+// PNG (floor plans) use 2048px max to retain wall lines, door arcs, and room labels.
+// JPEG/WebP (real scene photos) use 1024px — AI needs colour/atmosphere, not pixel detail.
+const compressImageFile = (file: File): Promise<{ data: string; mimeType: string }> =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const MAX = file.type === 'image/png' ? 2048 : 1024;
+      let w = img.naturalWidth;
+      let h = img.naturalHeight;
+
+      if (w > MAX || h > MAX) {
+        if (w >= h) { h = Math.round((h * MAX) / w); w = MAX; }
+        else        { w = Math.round((w * MAX) / h); h = MAX; }
       }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { reject(new Error('Canvas unavailable')); return; }
+      ctx.drawImage(img, 0, 0, w, h);
+
+      const isPng = file.type === 'image/png';
+      const mime  = isPng ? 'image/png' : 'image/jpeg';
+      const dataUrl = canvas.toDataURL(mime, isPng ? undefined : 0.85);
+      resolve({ data: dataUrl.split(',')[1], mimeType: mime });
     };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
+
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Image load failed')); };
+    img.src = objectUrl;
   });
+
+const fileToPart = async (file: File): Promise<{ inlineData: { data: string; mimeType: string } }> => {
+  const { data, mimeType } = await compressImageFile(file);
+  return { inlineData: { data, mimeType } };
 };
+
+const imageSourceToPart = async (imageSource: string): Promise<{ inlineData: { data: string; mimeType: string } }> => {
+  let dataUrl = imageSource;
+
+  if (imageSource.startsWith('blob:')) {
+    const resp = await fetch(imageSource);
+    const blob = await resp.blob();
+    dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  const [header, data] = dataUrl.split(',');
+  const mimeType = header?.match(/data:(.*?);base64/)?.[1] || 'image/png';
+  return { inlineData: { data, mimeType } };
+};
+
+const parseJsonArray = <T,>(raw: string): T[] => {
+  const cleaned = raw
+    .replace(/```json/g, '')
+    .replace(/```/g, '')
+    .trim();
+  const start = cleaned.indexOf('[');
+  const end = cleaned.lastIndexOf(']');
+  if (start === -1 || end === -1 || end <= start) return [];
+  try {
+    return JSON.parse(cleaned.slice(start, end + 1)) as T[];
+  } catch {
+    return [];
+  }
+};
+
+const fallbackChecklist = (note = '檢核暫時無法完成，請以人工判斷複核。'): DesignChecklistItem[] => [
+  { key: 'circulation', label: '走道與動線', status: 'unknown', note },
+  { key: 'storage', label: '收納合理性', status: 'unknown', note },
+  { key: 'scale', label: '家具比例', status: 'unknown', note },
+  { key: 'daylight', label: '採光遮擋', status: 'unknown', note },
+  { key: 'wet_kitchen', label: '濕區/廚房風險', status: 'unknown', note },
+];
 
 // Pre-render: extract spatial context for the target room from floor plan
 // Returns a concise spatial description string to inject into the rendering prompt
@@ -218,11 +278,72 @@ ${imageReferenceInstruction}`;
         }
     }
 
-    throw new Error("No image generated in the response.");
+    throw new Error("AI 未回傳圖片，請稍後再試或調整需求描述。");
 
   } catch (error) {
     console.error("Gemini API Error:", error);
     throw normalizeGeminiError(error);
+  }
+};
+
+export const evaluateDesignChecklist = async (
+  imageSource: string,
+  context: {
+    roomType: string;
+    style: string;
+    prompt: string;
+    projectBrief?: ProjectBrief | null;
+  }
+): Promise<DesignChecklistItem[]> => {
+  try {
+    const ai = new GoogleGenAI({ apiKey: getGeminiApiKey() });
+    const imagePart = await imageSourceToPart(imageSource);
+
+    const response = await ai.models.generateContent({
+      model: TEXT_MODEL,
+      contents: {
+        parts: [
+          imagePart,
+          {
+            text: `你是一位資深室內設計師，請針對這張生成後的室內設計圖做「好住」檢核，不要只評估美感。
+
+空間類型：${context.roomType}
+風格：${context.style}
+渲染/修改指令：${context.prompt || '未提供'}
+專案資料：${context.projectBrief ? JSON.stringify(context.projectBrief) : '未提供'}
+
+請只輸出 JSON array，不要 Markdown，不要說明文字。固定輸出 5 個物件，key 必須依序為：
+circulation, storage, scale, daylight, wet_kitchen
+
+每個物件格式：
+{"key":"circulation","label":"走道與動線","status":"pass|warning|fail|unknown","note":"20字內繁體中文判斷"}
+
+判斷重點：
+1. 走道是否可能不足、座椅後退或櫃門開啟是否卡動線
+2. 收納是否符合需求，是否只有裝飾沒有實用收納
+3. 家具比例是否過大或過小，是否擠壓空間
+4. 採光是否被大型家具、櫃體或深色材質遮擋
+5. 廚房/浴室/濕區是否有不合理移位、防水、排煙或清潔風險；非濕區也需標示是否無明顯風險`
+          }
+        ]
+      }
+    });
+
+    const parsed = parseJsonArray<DesignChecklistItem>(response.text || '');
+    const allowedKeys = new Set(['circulation', 'storage', 'scale', 'daylight', 'wet_kitchen']);
+    const normalized = parsed
+      .filter(item => allowedKeys.has(item.key))
+      .map(item => ({
+        key: item.key,
+        label: item.label || item.key,
+        status: ['pass', 'warning', 'fail', 'unknown'].includes(item.status) ? item.status : 'unknown',
+        note: item.note || '需要人工複核。',
+      })) as DesignChecklistItem[];
+
+    return normalized.length > 0 ? normalized : fallbackChecklist();
+  } catch (error) {
+    console.error("Checklist Error:", error);
+    return fallbackChecklist();
   }
 };
 
@@ -245,7 +366,7 @@ export const analyzeRoomImages = async (files: File[]): Promise<string> => {
       }
     });
 
-    return response.text || "Could not analyze image.";
+    return response.text || "無法分析圖片，請確認圖片清晰且格式正確。";
   } catch (error) {
     console.error("Analysis Error:", error);
     throw normalizeGeminiError(error);
@@ -253,9 +374,22 @@ export const analyzeRoomImages = async (files: File[]): Promise<string> => {
 };
 
 // Edit the generated image using Gemini 3 Pro Image
-export const editDesignImage = async (base64Image: string, prompt: string): Promise<string> => {
+export const editDesignImage = async (imageSource: string, prompt: string): Promise<string> => {
   try {
     const ai = new GoogleGenAI({ apiKey: getGeminiApiKey() });
+
+    // Resolve Blob URL → data URL so we can extract base64
+    let base64Image = imageSource;
+    if (imageSource.startsWith('blob:')) {
+      const resp = await fetch(imageSource);
+      const blob = await resp.blob();
+      base64Image = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
 
     // Robust clean base64
     let cleanBase64 = base64Image;
@@ -268,7 +402,7 @@ export const editDesignImage = async (base64Image: string, prompt: string): Prom
         const header = parts[0];
         if (header.includes('image/jpeg') || header.includes('image/jpg')) mimeType = 'image/jpeg';
         else if (header.includes('image/webp')) mimeType = 'image/webp';
-        
+
         cleanBase64 = parts[1];
     }
 
@@ -314,7 +448,7 @@ export const editDesignImage = async (base64Image: string, prompt: string): Prom
             }
         }
     }
-    throw new Error("No image generated from edit.");
+    throw new Error("AI 未回傳編輯後圖片，請稍後再試。");
   } catch (error) {
     console.error("Edit Error:", error);
     throw normalizeGeminiError(error);
@@ -419,8 +553,9 @@ export const analyzeFloorPlanRooms = async (files: File[]): Promise<RoomInfo[]> 
   }
 };
 
-const buildSystemInstruction = (ctx?: DesignContext, rooms?: RoomInfo[]) => `你是一位資深、細心且有親和力的 AI 室內設計師。你的任務是透過自然對話理解屋主的生活方式、空間條件與風格偏好，最後將需求整理成精準的 2D 寫實渲染指令。
+const buildSystemInstruction = (ctx?: DesignContext, rooms?: RoomInfo[], summary?: string) => `你是一位資深、細心且有親和力的 AI 室內設計師。你的任務是透過自然對話理解屋主的生活方式、空間條件與風格偏好，最後將需求整理成精準的 2D 寫實渲染指令。
 
+${summary ? `【先前對話摘要（已確認需求）】\n${summary}\n\n請以此摘要為基礎繼續對話，不要重複詢問已確認的資訊。\n` : ''}
 ${rooms && rooms.length > 0 ? `【已識別的平面圖空間】
 ${rooms.map(r => `• ${r.zhName}（${r.key}）：${r.description}`).join('\n')}
 
@@ -439,7 +574,8 @@ ${rooms.map(r => `• ${r.zhName}（${r.key}）：${r.description}`).join('\n')}
 - 常見風格參考：北歐簡約、日式侘寂、現代輕奢、工業風、法式古典、地中海風
 
 【渲染指令輸出格式】
-當你從對話中收集完所有資訊（目標空間、視角、採光、家具位置、屋主確認的設計風格）後，在回覆末尾加上：
+當你從對話中收集完所有資訊（目標空間、視角、採光、家具位置、屋主確認的設計風格）後，在回覆末尾依序加上：
+[專案資料: {"household":"家庭成員","area":"坪數或面積","budget":"預算","painPoints":"生活痛點","stylePreference":"風格偏好","rejectedElements":"不可接受元素","targetRoom":"目標空間","constructionLimits":"施工限制","storageNeeds":"收納需求","lifestyleNotes":"生活習慣","summary":"80字內專案摘要"}]
 [渲染指令: 生成一張{空間名稱}的照片級室內設計渲染圖。視角：{具體視角描述}。空間：{尺寸比例}，{採光描述}。家具：{嚴格依據平面圖的家具位置}。風格：{屋主選定的風格}，色調：{色彩描述}。{其他氛圍細節}。]
 
 注意事項：
@@ -447,14 +583,45 @@ ${rooms.map(r => `• ${r.zhName}（${r.key}）：${r.description}`).join('\n')}
 - 少用工具式說明，多用自然提問引導屋主描述生活情境、喜好與限制
 - 每次回覆聚焦一個重點，2-3句話（渲染指令除外）
 - 渲染指令要詳細具體，約80-120字
+- 專案資料必須是合法 JSON，未知欄位用空字串，不要猜測未確認的預算或家庭成員
 - 【重要】嚴禁使用 Markdown 格式：不可使用 **粗體**、*斜體*、# 標題、- 列點、數字編號等符號，只輸出純文字`;
+
+// Compress older messages into a running summary to cap token growth.
+// existingSummary: previously accumulated summary (empty string if none).
+// messages: the older messages to fold into the summary.
+export const summarizeHistory = async (
+  existingSummary: string,
+  messages: ChatMessage[]
+): Promise<string> => {
+  const ai = new GoogleGenAI({ apiKey: getGeminiApiKey() });
+
+  const dialogue = messages
+    .map(m => `${m.role === 'user' ? '屋主' : '設計師'}: ${m.content}`)
+    .join('\n');
+
+  const prompt = existingSummary
+    ? `現有摘要：\n${existingSummary}\n\n新增對話：\n${dialogue}\n\n請合併更新為一份完整摘要，`
+    : `請將以下室內設計諮詢對話壓縮成摘要，`;
+
+  const response = await ai.models.generateContent({
+    model: TEXT_MODEL,
+    contents: {
+      parts: [{
+        text: prompt + '保留所有已確認的設計需求（坪數、家庭成員、痛點、預算、風格、目標空間、採光、家具偏好），繁體中文，150字以內，直接輸出純文字，不需標題或列點。'
+      }]
+    }
+  });
+
+  return response.text?.trim() || existingSummary;
+};
 
 export const chatWithDesigner = async (
   history: ChatMessage[],
   userMessage: string,
   images?: File[],
   context?: DesignContext,
-  rooms?: RoomInfo[]
+  rooms?: RoomInfo[],
+  summary?: string
 ): Promise<string> => {
   try {
     const ai = new GoogleGenAI({ apiKey: getGeminiApiKey() });
@@ -482,7 +649,7 @@ export const chatWithDesigner = async (
       model: TEXT_MODEL,
       contents,
       config: {
-        systemInstruction: buildSystemInstruction(context, rooms),
+        systemInstruction: buildSystemInstruction(context, rooms, summary),
       }
     });
 

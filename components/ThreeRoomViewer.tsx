@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { DesignStyle, RoomType } from '../types';
+import { DESIGN_STYLE_LABELS, DesignStyle, RoomType } from '../types';
 import { Armchair, Camera, Sun, Moon, RotateCcw, Box, HelpCircle, Palette, Eye, ArrowRightLeft, Move, Trash2, CheckCircle2, Sliders, Download, Info } from 'lucide-react';
 import {
   buildLivingRoomFurniture,
@@ -1401,7 +1401,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
           setFloorLampAdded(false);
           continue;
         }
-        if (prompt === '在床頭櫃或書桌頂部架設一座褶縐 Origami Origami 百褶摺紙精緻精美檯燈') {
+        if (prompt === '在床頭櫃或書桌頂部架設一座褶縐 Origami 百褶摺紙精緻精美檯燈') {
           setTableLampAdded(false);
           continue;
         }
@@ -1470,6 +1470,30 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
             prompt === '將天花板燈飾切換為工業黑色軌道射燈' ||
             prompt === '將天花板燈飾切換為極奢黃銅星環雙層吊燈') {
           setCeilingLightPresetStyle(null);
+          continue;
+        }
+        if (prompt === '在房間中置入一展溫馨亮麗的義式奶油玻璃蘑菇檯燈') {
+          setMushroomLampAdded(false);
+          continue;
+        }
+        if (prompt === '在桌面上添置一盞極具年代感與浪漫文藝氣息的祖母綠玻璃檯燈') {
+          setVintageLampAdded(false);
+          continue;
+        }
+        if (prompt === '在角落擺設一盞充滿力學設計張力的極簡懸臂落地燈') {
+          setCantileverLampAdded(false);
+          continue;
+        }
+        if (prompt === '在死角增設一組前衛藝術感的球形電鍍落地燈') {
+          setRetroSphereLampAdded(false);
+          continue;
+        }
+        if (prompt === '在套房死角佈置收納衣櫃') {
+          setStudioWardrobeAdded(false);
+          continue;
+        }
+        if (prompt === '在套房靠窗安設多功能小書桌椅') {
+          setStudioDeskAdded(false);
           continue;
         }
 
@@ -1562,7 +1586,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
         setCustomLampsOn(true);
         return;
       }
-      if (prompt === '在床頭櫃或書桌頂部架設一座褶縐 Origami Origami 百褶摺紙精緻精美檯燈') {
+      if (prompt === '在床頭櫃或書桌頂部架設一座褶縐 Origami 百褶摺紙精緻精美檯燈') {
         setTableLampAdded(true);
         setCustomLampsOn(true);
         return;
@@ -1641,6 +1665,34 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
       }
       if (prompt === '將天花板燈飾切換為極奢黃銅星環雙層吊燈') {
         setCeilingLightPresetStyle('luxury');
+        return;
+      }
+      if (prompt === '在房間中置入一展溫馨亮麗的義式奶油玻璃蘑菇檯燈') {
+        setMushroomLampAdded(true);
+        setCustomLampsOn(true);
+        return;
+      }
+      if (prompt === '在桌面上添置一盞極具年代感與浪漫文藝氣息的祖母綠玻璃檯燈') {
+        setVintageLampAdded(true);
+        setCustomLampsOn(true);
+        return;
+      }
+      if (prompt === '在角落擺設一盞充滿力學設計張力的極簡懸臂落地燈') {
+        setCantileverLampAdded(true);
+        setCustomLampsOn(true);
+        return;
+      }
+      if (prompt === '在死角增設一組前衛藝術感的球形電鍍落地燈') {
+        setRetroSphereLampAdded(true);
+        setCustomLampsOn(true);
+        return;
+      }
+      if (prompt === '在套房死角佈置收納衣櫃') {
+        setStudioWardrobeAdded(true);
+        return;
+      }
+      if (prompt === '在套房靠窗安設多功能小書桌椅') {
+        setStudioDeskAdded(true);
         return;
       }
 
@@ -1722,7 +1774,11 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
 
     switch(key) {
       case 'leather':
-        setLeatherPresetActive(prev => !prev);
+        setLeatherPresetActive(prev => {
+          const next = !prev;
+          setCouchMaterial(next ? 'leather' : 'fabric');
+          return next;
+        });
         break;
       case 'floor':
         setHerringbonePresetActive(prev => !prev);
@@ -1732,18 +1788,33 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
           const next = !prev;
           if (next) {
             setCustomLampsOn(true);
+          } else {
+            if (selectedFurniture === 'accent_lamp') setSelectedFurniture('sofa_or_bed');
+            if (!tableLampAdded && !mushroomLampAdded && !vintageLampAdded && !cantileverLampAdded && !retroSphereLampAdded) setCustomLampsOn(false);
           }
           return next;
         });
         break;
       case 'plant':
-        setPlantAdded(prev => !prev);
+        setPlantAdded(prev => {
+          const next = !prev;
+          if (!next && selectedFurniture === 'accent_plant') setSelectedFurniture('sofa_or_bed');
+          return next;
+        });
         break;
       case 'art':
-        setArtworkAdded(prev => !prev);
+        setArtworkAdded(prev => {
+          const next = !prev;
+          if (!next && selectedFurniture === 'accent_artwork') setSelectedFurniture('sofa_or_bed');
+          return next;
+        });
         break;
       case 'wine_cabinet':
-        setWineCabinetAdded(prev => !prev);
+        setWineCabinetAdded(prev => {
+          const next = !prev;
+          if (!next && selectedFurniture === 'wine_cabinet') setSelectedFurniture('sofa_or_bed');
+          return next;
+        });
         break;
       case 'wardrobe':
         setWardrobeAdded(prev => {
@@ -1755,19 +1826,35 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
         });
         break;
       case 'cat_tower':
-        setCatTowerAdded(prev => !prev);
+        setCatTowerAdded(prev => {
+          const next = !prev;
+          if (!next && selectedFurniture === 'cat_tower') setSelectedFurniture('sofa_or_bed');
+          return next;
+        });
         break;
       case 'bar_cart':
-        setBarCartAdded(prev => !prev);
+        setBarCartAdded(prev => {
+          const next = !prev;
+          if (!next && selectedFurniture === 'bar_cart') setSelectedFurniture('sofa_or_bed');
+          return next;
+        });
         break;
       case 'concrete':
         setConcreteWallAdded(prev => !prev);
         break;
       case 'diffuser':
-        setDiffuserAdded(prev => !prev);
+        setDiffuserAdded(prev => {
+          const next = !prev;
+          if (!next && selectedFurniture === 'diffuser') setSelectedFurniture('sofa_or_bed');
+          return next;
+        });
         break;
       case 'cushions':
-        setCushionsAdded(prev => !prev);
+        setCushionsAdded(prev => {
+          const next = !prev;
+          if (!next && selectedFurniture === 'cushions') setSelectedFurniture('sofa_or_bed');
+          return next;
+        });
         break;
       case 'vase':
         setVaseAdded(prev => {
@@ -1801,6 +1888,9 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
           const next = !prev;
           if (next) {
             setCustomLampsOn(true);
+          } else {
+            if (selectedFurniture === 'table_lamp') setSelectedFurniture('sofa_or_bed');
+            if (!floorLampAdded && !mushroomLampAdded && !vintageLampAdded && !cantileverLampAdded && !retroSphereLampAdded) setCustomLampsOn(false);
           }
           return next;
         });
@@ -1808,32 +1898,44 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
       case 'mushroom_lamp':
         setMushroomLampAdded(prev => {
           const next = !prev;
-          if (next) setCustomLampsOn(true);
-          if (!next && selectedFurniture === 'mushroom_lamp') setSelectedFurniture('sofa_or_bed');
+          if (next) { setCustomLampsOn(true); }
+          else {
+            if (selectedFurniture === 'mushroom_lamp') setSelectedFurniture('sofa_or_bed');
+            if (!floorLampAdded && !tableLampAdded && !vintageLampAdded && !cantileverLampAdded && !retroSphereLampAdded) setCustomLampsOn(false);
+          }
           return next;
         });
         break;
       case 'vintage_lamp':
         setVintageLampAdded(prev => {
           const next = !prev;
-          if (next) setCustomLampsOn(true);
-          if (!next && selectedFurniture === 'vintage_lamp') setSelectedFurniture('sofa_or_bed');
+          if (next) { setCustomLampsOn(true); }
+          else {
+            if (selectedFurniture === 'vintage_lamp') setSelectedFurniture('sofa_or_bed');
+            if (!floorLampAdded && !tableLampAdded && !mushroomLampAdded && !cantileverLampAdded && !retroSphereLampAdded) setCustomLampsOn(false);
+          }
           return next;
         });
         break;
       case 'cantilever_lamp':
         setCantileverLampAdded(prev => {
           const next = !prev;
-          if (next) setCustomLampsOn(true);
-          if (!next && selectedFurniture === 'cantilever_lamp') setSelectedFurniture('sofa_or_bed');
+          if (next) { setCustomLampsOn(true); }
+          else {
+            if (selectedFurniture === 'cantilever_lamp') setSelectedFurniture('sofa_or_bed');
+            if (!floorLampAdded && !tableLampAdded && !mushroomLampAdded && !vintageLampAdded && !retroSphereLampAdded) setCustomLampsOn(false);
+          }
           return next;
         });
         break;
       case 'retro_sphere_lamp':
         setRetroSphereLampAdded(prev => {
           const next = !prev;
-          if (next) setCustomLampsOn(true);
-          if (!next && selectedFurniture === 'retro_sphere_lamp') setSelectedFurniture('sofa_or_bed');
+          if (next) { setCustomLampsOn(true); }
+          else {
+            if (selectedFurniture === 'retro_sphere_lamp') setSelectedFurniture('sofa_or_bed');
+            if (!floorLampAdded && !tableLampAdded && !mushroomLampAdded && !vintageLampAdded && !cantileverLampAdded) setCustomLampsOn(false);
+          }
           return next;
         });
         break;
@@ -4259,7 +4361,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
       furnitureGroup.add(vinGroup);
     }
 
-    // --- ACCENTS: Minimalist Cantilever Floor Lamp (📐 北歐極簡懸臂落地燈) ---
+    // --- ACCENTS: Minimalist Cantilever Floor Lamp (💡 北歐極簡懸臂落地燈) ---
     if (cantileverLampAdded) {
       const cantGroup = new THREE.Group();
       cantGroup.name = "cantilever_lamp";
@@ -5014,12 +5116,22 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
     };
     animate();
 
-    // CLEANUP
+    // CLEANUP — runs before each scene rebuild and on unmount.
+    // Dispose all geometry/materials in the scene to prevent GPU memory accumulation
+    // across style/furniture changes. Renderer is intentionally kept alive and reused.
     return () => {
       cancelAnimationFrame(animationFrameId);
       resizeObserver.disconnect();
       if (scene) {
         scene.add = originalSceneAdd;
+        scene.traverse((obj) => {
+          const mesh = obj as THREE.Mesh;
+          if (mesh.geometry) mesh.geometry.dispose();
+          if (mesh.material) {
+            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+            mats.forEach(m => m.dispose());
+          }
+        });
       }
     };
   }, [
@@ -5220,18 +5332,28 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
     }
   };
 
+  const currentRoomLabel = ({
+    [RoomType.LIVING_ROOM]: '客廳',
+    [RoomType.BEDROOM]: '臥室',
+    [RoomType.DINING_ROOM]: '餐廳',
+    [RoomType.OFFICE]: '書房',
+    [RoomType.BATHROOM]: '衛浴',
+    [RoomType.KITCHEN]: '廚房',
+    [RoomType.STUDIO]: '套房'
+  } as Record<RoomType, string>)[roomType];
+  const currentStyleLabel = DESIGN_STYLE_LABELS[style].replace(/\s*\([^)]*\)/g, '');
+
   return (
     <div className="w-full h-full flex flex-col bg-neutral-950 rounded-xl overflow-hidden border border-neutral-800/85 text-neutral-200">
       
-      {/* 3D Visualizer Header & Quick Switcher Row */}
+      {/* Configuration checker header & quick switcher row */}
       <div className={`bg-neutral-950 px-4 py-2 border-b border-neutral-800/90 flex flex-col ${isSidebarCollapsed ? 'lg:flex-row lg:items-center' : 'xl:flex-row xl:items-center'} justify-between gap-2 shrink-0`}>
-        <div className="flex items-center gap-2 select-none py-1">
-          <div className="p-1 px-2 rounded-md bg-indigo-950 border border-indigo-800 text-[10px] uppercase tracking-wider font-extrabold text-indigo-400">
-            3D LIVE CANVAS
-          </div>
-          <span className="text-neutral-700 hidden sm:inline">|</span>
-          <span className="text-[11px] text-neutral-400">
-            當前風格：<span className="text-white font-medium">{style === DesignStyle.MODERN ? '極簡現代 (Modern)' : style === DesignStyle.SCANDINAVIAN ? '北歐溫馨 (Scandinavian)' : style === DesignStyle.INDUSTRIAL ? '工業水泥 (Industrial)' : style === DesignStyle.LUXURY ? '奢華大理石 (Luxury)' : style === DesignStyle.BOHEMIAN ? '斑斕波西米亞 (Bohemian)' : '侘寂風 (Wabi-Sabi)'}</span>
+        <div className="flex items-center gap-1.5 select-none py-1">
+          <span className="px-2.5 py-1 rounded-md bg-neutral-900 border border-neutral-800 text-[11px] font-semibold text-neutral-200 leading-none">
+            {currentRoomLabel}
+          </span>
+          <span className="px-2.5 py-1 rounded-md bg-neutral-900 border border-neutral-800 text-[11px] font-semibold text-neutral-200 leading-none">
+            風格：{currentStyleLabel}
           </span>
         </div>
 
@@ -5240,7 +5362,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
           <div className="flex items-center gap-1.5 mr-1 px-1.5 py-0.5 border-r border-neutral-800 shrink-0">
             <ArrowRightLeft size={11} className="text-indigo-400 shrink-0" />
             <span className="text-[10px] sm:text-[11px] uppercase font-bold tracking-wider text-neutral-300 whitespace-nowrap">
-              快速切換 3D 空間:
+              切換空間
             </span>
           </div>
           <div className="flex items-center gap-1 overflow-x-auto scrollbar-none max-w-full">
@@ -5281,7 +5403,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
           {/* Helper instruction floating card */}
           <div className="absolute top-4 left-4 bg-black/75 backdrop-blur-md border border-neutral-800 rounded-lg px-3 py-1.5 text-[10px] sm:text-xs text-neutral-400 font-medium pointer-events-none select-none flex items-center gap-2">
             <Info size={13} className="text-indigo-400 animate-pulse" />
-            <span>滑鼠按住拖曳可 360° 旋轉視角、滾輪縮放、右鍵平移</span>
+            <span>拖曳旋轉、滾輪縮放，從不同角度檢查家具會不會太擠</span>
           </div>
 
           {/* HUD Quick POV adjust */}
@@ -5313,10 +5435,10 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
         <button 
           onClick={handleExport3DImage}
           className="absolute bottom-4 right-4 flex items-center gap-1.5 bg-indigo-600/90 hover:bg-indigo-600 text-xs text-white px-3 py-1.5 rounded-lg font-medium transition-all hover:scale-105 active:scale-95 shadow-lg shadow-black/50"
-          title="Export 3D Render Screen"
+          title="下載目前配置視角"
         >
           <Download size={13} />
-          <span>導出3D視角圖</span>
+          <span>下載配置圖</span>
         </button>
       </div>
 
@@ -5331,7 +5453,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
             className={`py-2 rounded-lg text-[13px] font-bold text-center flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${activePanelTab === 'layout' ? 'bg-indigo-600 text-white font-extrabold shadow-md shadow-indigo-600/30' : 'bg-transparent text-neutral-400 hover:text-white'}`}
           >
             <Box size={14} className={activePanelTab === 'layout' ? 'text-white' : 'text-neutral-400'} />
-            <span>結構尺寸</span>
+            <span>空間尺寸</span>
           </button>
           <button
             onClick={() => setActivePanelTab('materials')}
@@ -5339,7 +5461,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
             className={`py-2 rounded-lg text-[13px] font-bold text-center flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${activePanelTab === 'materials' ? 'bg-indigo-600 text-white font-extrabold shadow-md shadow-indigo-600/30' : 'bg-transparent text-neutral-400 hover:text-white'}`}
           >
             <Palette size={14} className={activePanelTab === 'materials' ? 'text-white' : 'text-neutral-400'} />
-            <span>材質色彩</span>
+            <span>顏色材質</span>
           </button>
           <button
             onClick={() => setActivePanelTab('furniture')}
@@ -5347,7 +5469,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
             className={`py-2 rounded-lg text-[13px] font-bold text-center flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${activePanelTab === 'furniture' ? 'bg-indigo-600 text-white font-extrabold shadow-md shadow-indigo-600/30' : 'bg-transparent text-neutral-400 hover:text-white'}`}
           >
             <Move size={14} className={activePanelTab === 'furniture' ? 'text-white' : 'text-neutral-400'} />
-            <span>家具微調</span>
+            <span>家具位置</span>
           </button>
         </div>
 
@@ -5442,7 +5564,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
               <div className="space-y-4 bg-neutral-950/40 p-4 rounded-xl border border-neutral-800/80">
                 <h4 className="text-sm font-extrabold text-neutral-300 uppercase tracking-wider flex items-center gap-2">
                   <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full" />
-                  ⏳ 空間採光與夜間照明
+                  ☀️ 空間採光與夜間照明
                 </h4>
                 
                 <div className="grid grid-cols-3 gap-1">
@@ -5512,7 +5634,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
                 {/* Door config */}
                 <div className="space-y-2 pb-2 border-b border-neutral-800/50">
                   <div className="text-[13px] text-neutral-300 font-bold flex items-center gap-1.5">
-                    <span>配置門扉 🏠</span>
+                    <span>配置門扉 🚪</span>
                   </div>
                   
                   <div className="grid grid-cols-2 gap-2 text-[13px]">
@@ -5539,9 +5661,9 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
                         onChange={(e) => setDoorPosition(e.target.value)}
                         className="w-full bg-neutral-800 border border-neutral-700/60 rounded px-1.5 py-1 text-white outline-none cursor-pointer text-[13px]"
                       >
-                        <option value="right">🏠 右側邊牆</option>
-                        <option value="left">🏠 左側邊牆</option>
-                        <option value="back">🏠 後方底牆</option>
+                        <option value="right">🧱 右側邊牆</option>
+                        <option value="left">🧱 左側邊牆</option>
+                        <option value="back">🧱 後方底牆</option>
                       </select>
                     </div>
                   </div>
@@ -5606,9 +5728,9 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
                         onChange={(e) => setWindowPosition(e.target.value)}
                         className="w-full bg-neutral-800 border border-neutral-700/60 rounded px-1.5 py-1 text-white outline-none cursor-pointer text-[13px]"
                       >
-                        <option value="left">🏠 左側邊牆</option>
-                        <option value="back">🏠 後方底牆</option>
-                        <option value="right">🏠 右側邊牆</option>
+                        <option value="left">🧱 左側邊牆</option>
+                        <option value="back">🧱 後方底牆</option>
+                        <option value="right">🧱 右側邊牆</option>
                       </select>
                     </div>
                   </div>
@@ -5899,12 +6021,12 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
                       <>
                         <option value="sofa_or_bed">🛏️ 精緻單人床組 (Studio Bed)</option>
                         <option value="studio_sofa">🖥️ 職人工作書桌椅 (Desk & Chair)</option>
-                        <option value="coffee_table">🚪 質感收納大衣櫃 (Wardrobe / Closet)</option>
+                        <option value="coffee_table">🗃️ 質感收納大衣櫃 (Wardrobe / Closet)</option>
                       </>
                     )}
 
                     {/* Accent items added via Preset / Phase 2 buttons */}
-                    {wardrobeAdded && <option value="wardrobe">🚪 質感收納大衣櫃 (Wardrobe)</option>}
+                    {wardrobeAdded && <option value="wardrobe">🗃️ 質感收納大衣櫃 (Wardrobe)</option>}
                     {plantAdded && <option value="accent_plant">🪴 琴葉榕植栽 (Corner Plant)</option>}
                     {artworkAdded && <option value="accent_artwork">🎨 幾何極簡抽象藝術畫</option>}
                     {botanicalPrintAdded && <option value="botanical_print">🌿 莫蘭迪植物版畫</option>}
@@ -5922,7 +6044,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
                     {shoeCabinetAdded && <option value="shoe_cabinet">👞 櫻桃木格柵鞋櫃 (Shoe Cabinet)</option>}
                     {mushroomLampAdded && <option value="mushroom_lamp">🍄 義式奶油玻璃蘑菇檯燈 (Mushroom Lamp)</option>}
                     {vintageLampAdded && <option value="vintage_lamp">📻 復古長型祖母綠書桌燈 (Banker Table Lamp)</option>}
-                    {cantileverLampAdded && <option value="cantilever_lamp">📐 北歐極簡懸臂落地燈 (Cantilever Floor Lamp)</option>}
+                    {cantileverLampAdded && <option value="cantilever_lamp">💡 北歐極簡懸臂落地燈 (Cantilever Floor Lamp)</option>}
                     {retroSphereLampAdded && <option value="retro_sphere_lamp">💡 1970 太空球形落地燈 (Chrome Eyeball Floor Lamp)</option>}
                     {turntableAdded && <option value="turntable">🎵 職人手提黑膠唱片機 (Suitcase Record Player)</option>}
                     {sculptureAdded && <option value="sculpture">🧱 侘寂工藝石膏幾何雕塑 (Travertine Sculpture)</option>}
@@ -6053,7 +6175,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-neutral-200 font-extrabold uppercase tracking-wider flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse" />
-                    💡 空間軟裝推薦與自由搭配 (Presets)
+                    💡 空間軟裝推薦與自由搭配
                   </span>
                 </div>
 
@@ -6080,280 +6202,43 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
                 <div className="space-y-2 max-h-[290px] overflow-y-auto pr-1">
                   {[
                     // --- Core Furniture Category ---
-                    {
-                      key: 'living_sofa',
-                      name: '🛋️ 客廳核心沙發組',
-                      category: 'core_furniture',
-                      recLabel: '客廳核心',
-                      desc: '客廳舒適主座大沙發組，提供高密度回彈泡棉與奢華布藝面料。',
-                      active: livingSofaAdded,
-                      prompt: '在客廳中配置核心沙發座組'
-                    },
-                    {
-                      key: 'living_coffee_table',
-                      name: '☕ 客廳圓形茶几',
-                      category: 'core_furniture',
-                      recLabel: '客廳核心',
-                      desc: '擺設於沙發前方的天然大理石圓形低盤茶几，點綴金屬細腿。',
-                      active: livingCoffeeTableAdded,
-                      prompt: '在客廳沙發前擺放天然石茶几'
-                    },
-                    {
-                      key: 'living_tv_console',
-                      name: '📺 客廳懸空電視櫃',
-                      category: 'core_furniture',
-                      recLabel: '客廳核心',
-                      desc: '簡約橡木懸空抽屜式電視櫃，完美藏線且增加牆面輕盈立體感。',
-                      active: livingTvConsoleAdded,
-                      prompt: '在客廳電視牆下掛置橡木懸空櫃'
-                    },
-                    {
-                      key: 'bedroom_bed',
-                      name: '🛏️ 臥室主床鋪',
-                      category: 'core_furniture',
-                      recLabel: '臥室核心',
-                      desc: '高級進口乳膠主床，搭配舒適棉麻高靠背與飽滿羽絨枕頭。',
-                      active: bedroomBedAdded,
-                      prompt: '在臥室正中安放寬敞舒適的主床'
-                    },
-                    {
-                      key: 'bedroom_stands',
-                      name: '🗄️ 臥室床頭櫃一組',
-                      category: 'core_furniture',
-                      recLabel: '臥室核心',
-                      desc: '主床兩側的雙抽屜對稱床頭儲物矮櫃。',
-                      active: bedroomStandsAdded,
-                      prompt: '在主床左右對稱安裝橡木床頭櫃'
-                    },
-                    {
-                      key: 'dining_set',
-                      name: '🪑 餐廳實木餐桌椅組',
-                      category: 'core_furniture',
-                      recLabel: '餐廳核心',
-                      desc: '六人位北美實木餐桌，配有微軟真皮包覆透氣餐椅，極佳溫馨感。',
-                      active: diningSetAdded,
-                      prompt: '在餐廳中置入溫馨長型實木餐桌椅'
-                    },
-                    {
-                      key: 'office_desk',
-                      name: '🖥️ 書房職人辦公桌椅組',
-                      category: 'core_furniture',
-                      recLabel: '書房核心',
-                      desc: '實木長型大辦公桌，搭配電競人體工學網椅，長時間工作腰椎無負擔。',
-                      active: officeDeskAdded,
-                      prompt: '在書房深處擺放職人工作大平桌與人體工學椅'
-                    },
-                    {
-                      key: 'bathroom_bathtub',
-                      name: '🛁 浴室獨立橢圓浴缸',
-                      category: 'core_furniture',
-                      recLabel: '衛浴核心',
-                      desc: '一體成型高水準壓克力人造石独立浴缸，防污保溫效果極佳。',
-                      active: bathroomBathtubAdded,
-                      prompt: '在浴室靠牆擺設精緻橢圓獨立式浴缸'
-                    },
-                    {
-                      key: 'bathroom_vanity',
-                      name: '🚰 浴室大理石洗手池',
-                      category: 'core_furniture',
-                      recLabel: '衛浴核心',
-                      desc: '奢享岩板洗手台面，下方附有實木防潮雙層置物抽屜櫃。',
-                      active: bathroomVanityAdded,
-                      prompt: '在浴室靠背牆設置大理石洗手池與儲物櫃'
-                    },
-                    {
-                      key: 'bathroom_toilet',
-                      name: '🚽 浴室智能智慧馬桶',
-                      category: 'core_furniture',
-                      recLabel: '衛浴核心',
-                      desc: '極簡无水箱壁掛智能馬桶，帶有自動感應翻蓋、溫水洗淨與夜燈烘乾。',
-                      active: bathroomToiletAdded,
-                      prompt: '在衛浴安設極簡壁掛智能馬桶'
-                    },
-                    {
-                      key: 'bathroom_shower',
-                      name: '🚿 浴室淋浴花灑蓮蓬頭組',
-                      category: 'core_furniture',
-                      recLabel: '衛浴核心',
-                      desc: '乾濕分離頂級淋浴花灑，含一體式大雨淋頭、手持精緻蓮蓬頭及防爆鋼化玻璃屏。',
-                      active: bathroomShowerAdded,
-                      prompt: '在浴室角落佈置精緻淋浴套件及乾濕分離玻璃屏'
-                    },
-                    {
-                      key: 'kitchen_counter',
-                      name: '🍳 廚房中島島台廚櫃',
-                      category: 'core_furniture',
-                      recLabel: '廚房核心',
-                      desc: '石英石防刮高白備料中島島台，整合了嵌入式電磁爐與實用洗滌水槽。',
-                      active: kitchenCounterAdded,
-                      prompt: '在廚房中央設置備料中島島台櫃體'
-                    },
-                    {
-                      key: 'kitchen_fridge',
-                      name: '❄️ 廚房嵌入式雙門冰箱',
-                      category: 'core_furniture',
-                      recLabel: '廚房核心',
-                      desc: '法式曜石黑雙開門大容量冰箱，節能一級標章，保留最新新鮮。',
-                      active: kitchenFridgeAdded,
-                      prompt: '在廚房牆體內嵌入大型法式對開門冰箱'
-                    },
-                    {
-                      key: 'studio_desk',
-                      name: '💻 套房多功能工作書桌',
-                      category: 'core_furniture',
-                      recLabel: '套房核心',
-                      desc: '輕巧轉角書桌椅組，集學業、辦公與娛樂為一體。',
-                      active: studioDeskAdded,
-                      prompt: '在套房靠窗安設多功能小書桌椅'
-                    },
-
+                    // Living Room
+                    { key: 'living_sofa', rooms: [RoomType.LIVING_ROOM], name: '🛋️ 客廳核心沙發組', category: 'core_furniture', recLabel: '客廳核心', desc: '客廳舒適主座大沙發組，提供高密度回彈泡棉與奢華布藝面料。', active: livingSofaAdded, prompt: '在客廳中配置核心沙發座組' },
+                    { key: 'living_coffee_table', rooms: [RoomType.LIVING_ROOM], name: '☕ 客廳圓形茶几', category: 'core_furniture', recLabel: '客廳核心', desc: '擺設於沙發前方的天然大理石圓形低盤茶几，點綴金屬細腿。', active: livingCoffeeTableAdded, prompt: '在客廳沙發前擺放天然石茶几' },
+                    { key: 'living_tv_console', rooms: [RoomType.LIVING_ROOM], name: '📺 客廳懸空電視櫃', category: 'core_furniture', recLabel: '客廳核心', desc: '簡約橡木懸空抽屜式電視櫃，完美藏線且增加牆面輕盈立體感。', active: livingTvConsoleAdded, prompt: '在客廳電視牆下掛置橡木懸空櫃' },
+                    // Bedroom
+                    { key: 'bedroom_bed', rooms: [RoomType.BEDROOM], name: '🛏️ 臥室主床鋪', category: 'core_furniture', recLabel: '臥室核心', desc: '高級進口乳膠主床，搭配舒適棉麻高靠背與飽滿羽絨枕頭。', active: bedroomBedAdded, prompt: '在臥室正中安放寬敞舒適的主床' },
+                    { key: 'bedroom_stands', rooms: [RoomType.BEDROOM], name: '🗄️ 臥室床頭櫃一組', category: 'core_furniture', recLabel: '臥室核心', desc: '主床兩側的雙抽屜對稱床頭儲物矮櫃。', active: bedroomStandsAdded, prompt: '在主床左右對稱安裝橡木床頭櫃' },
+                    // Dining Room
+                    { key: 'dining_set', rooms: [RoomType.DINING_ROOM], name: '🪑 餐廳實木餐桌椅組', category: 'core_furniture', recLabel: '餐廳核心', desc: '六人位北美實木餐桌，配有微軟真皮包覆透氣餐椅，極佳溫馨感。', active: diningSetAdded, prompt: '在餐廳中置入溫馨長型實木餐桌椅' },
+                    // Office
+                    { key: 'office_desk', rooms: [RoomType.OFFICE], name: '🖥️ 書房職人辦公桌椅組', category: 'core_furniture', recLabel: '書房核心', desc: '實木長型大辦公桌，搭配電競人體工學網椅，長時間工作腰椎無負擔。', active: officeDeskAdded, prompt: '在書房深處擺放職人工作大平桌與人體工學椅' },
+                    // Bathroom
+                    { key: 'bathroom_bathtub', rooms: [RoomType.BATHROOM], name: '🛁 浴室獨立橢圓浴缸', category: 'core_furniture', recLabel: '衛浴核心', desc: '一體成型高水準壓克力人造石独立浴缸，防污保溫效果極佳。', active: bathroomBathtubAdded, prompt: '在浴室靠牆擺設精緻橢圓獨立式浴缸' },
+                    { key: 'bathroom_vanity', rooms: [RoomType.BATHROOM], name: '🚰 浴室大理石洗手池', category: 'core_furniture', recLabel: '衛浴核心', desc: '奢享岩板洗手台面，下方附有實木防潮雙層置物抽屜櫃。', active: bathroomVanityAdded, prompt: '在浴室靠背牆設置大理石洗手池與儲物櫃' },
+                    { key: 'bathroom_toilet', rooms: [RoomType.BATHROOM], name: '🚽 浴室智能智慧馬桶', category: 'core_furniture', recLabel: '衛浴核心', desc: '極簡无水箱壁掛智能馬桶，帶有自動感應翻蓋、溫水洗淨與夜燈烘乾。', active: bathroomToiletAdded, prompt: '在衛浴安設極簡壁掛智能馬桶' },
+                    { key: 'bathroom_shower', rooms: [RoomType.BATHROOM], name: '🚿 浴室淋浴花灑蓮蓬頭組', category: 'core_furniture', recLabel: '衛浴核心', desc: '乾濕分離頂級淋浴花灑，含一體式大雨淋頭、手持精緻蓮蓬頭及防爆鋼化玻璃屏。', active: bathroomShowerAdded, prompt: '在浴室角落佈置精緻淋浴套件及乾濕分離玻璃屏' },
+                    // Kitchen
+                    { key: 'kitchen_counter', rooms: [RoomType.KITCHEN], name: '🍳 廚房中島島台廚櫃', category: 'core_furniture', recLabel: '廚房核心', desc: '石英石防刮高白備料中島島台，整合了嵌入式電磁爐與實用洗滌水槽。', active: kitchenCounterAdded, prompt: '在廚房中央設置備料中島島台櫃體' },
+                    { key: 'kitchen_fridge', rooms: [RoomType.KITCHEN], name: '❄️ 廚房嵌入式雙門冰箱', category: 'core_furniture', recLabel: '廚房核心', desc: '法式曜石黑雙開門大容量冰箱，節能一級標章，保留最新新鮮。', active: kitchenFridgeAdded, prompt: '在廚房牆體內嵌入大型法式對開門冰箱' },
                     // --- Soft Furniture Category ---
-                    {
-                      key: 'leather',
-                      name: '🛋️ 棕色皮革沙發面料',
-                      category: 'soft_furniture',
-                      recLabel: '風格面料',
-                      desc: '切換沙發為富有人文歷史厚度與溫潤光澤的頂級棕色皮革。',
-                      active: leatherPresetActive,
-                      prompt: '將主沙發更換為溫潤色澤的頂級棕色皮革沙發'
-                    },
-                    {
-                      key: 'dining_sideboard',
-                      name: '🪑 餐廳輕奢餐邊矮櫃',
-                      category: 'soft_furniture',
-                      recLabel: '風格儲物',
-                      desc: '北美胡桃木與半透長虹玻璃拼貼，收納餐盤及咖啡器具優美典雅。',
-                      active: diningSideboardAdded,
-                      prompt: '在餐廳牆邊配置輕奢長春花玻璃餐邊櫃'
-                    },
-                    {
-                      key: 'office_bookcase',
-                      name: '📚 書房高檔隔板滿牆書櫃',
-                      category: 'soft_furniture',
-                      recLabel: '風格儲物',
-                      desc: '無背板大空間直落式多層書隔，隨心佈置藝術書籍與珍藏展品。',
-                      active: officeBookcaseAdded,
-                      prompt: '在書房牆面佈置通頂多層實木大書櫃'
-                    },
-                    {
-                      key: 'studio_wardrobe',
-                      name: '👗 套房收納質感衣櫃',
-                      category: 'soft_furniture',
-                      recLabel: '風格儲物',
-                      desc: '雙滑門霧面黑色防潮板材，完美隱藏衣物且保持視野乾淨。',
-                      active: studioWardrobeAdded,
-                      prompt: '在套房死角佈置收納衣櫃'
-                    },
-                    {
-                      key: 'wardrobe',
-                      name: '🚪 臥室金屬收納大衣櫃',
-                      category: 'soft_furniture',
-                      recLabel: '風格儲物',
-                      desc: '極高對開高光澤烤漆長門板搭配精緻鍍金拉手，提供極致奢華的大幅床邊收納可能。',
-                      active: wardrobeAdded,
-                      prompt: '在臥室佈置一座簡潔美觀的高大收納衣櫃'
-                    },
-                    {
-                      key: 'wine_cabinet',
-                      name: '🍷 餐廳玻璃恆溫落地酒櫃',
-                      category: 'soft_furniture',
-                      recLabel: '風格儲物',
-                      desc: '添置奢華黑色框架與暗黑色高透防爆玻璃的嵌入式落地酒櫃。',
-                      active: wineCabinetAdded,
-                      prompt: '在空間中添置一座優雅奢華的恆溫玻璃落地酒櫃'
-                    },
-                    {
-                      key: 'bar_cart',
-                      name: '🥂 爵士白吧台手推車',
-                      category: 'soft_furniture',
-                      recLabel: '風格軟裝',
-                      desc: '拉絲黃銅金屬框架，上下雙層奢華大理石板與精緻酒具。',
-                      active: barCartAdded,
-                      prompt: '在空間擺設輕奢黃銅大理石頂級雙層移動吧台車'
-                    },
-                    {
-                      key: 'cat_tower',
-                      name: '🐱 實木貓咪攀爬架',
-                      category: 'soft_furniture',
-                      recLabel: '風格軟裝',
-                      desc: '進口松木多層跳台、劍麻實木抓柱與頂端圓形溫馨貓窩。',
-                      active: catTowerAdded,
-                      prompt: '設置北歐風格的松木貓爬架，結合天然麻繩抓柱'
-                    },
-                    {
-                      key: 'shoe_cabinet',
-                      name: '👞 櫻桃木格柵對開鞋櫃',
-                      category: 'soft_furniture',
-                      recLabel: '風格軟裝',
-                      desc: '傳統卡榫榫接、經典櫻桃木深沉色澤，飾有防塵通風格柵木板以及精美雙拉絲實心把手。',
-                      active: shoeCabinetAdded,
-                      prompt: '在玄關或角落擺設一座櫻桃木格柵雕工雙門鞋櫃'
-                    },
-                    {
-                      key: 'cushions',
-                      name: '🛋️ 絲絨軟靠墊抱枕組',
-                      category: 'soft_furniture',
-                      recLabel: '風格裝飾',
-                      desc: '提供一組極細密絨毛工藝、融入低飽和莫蘭迪撞色的靠面抱枕，營造綿密放鬆感。',
-                      active: cushionsAdded,
-                      prompt: '在沙發或床邊置放具有低飽和色澤的莫蘭迪絨質抱枕'
-                    },
+                    { key: 'leather', rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM], name: '🛋️ 棕色皮革沙發面料', category: 'soft_furniture', recLabel: '風格面料', desc: '切換沙發為富有人文歷史厚度與溫潤光澤的頂級棕色皮革。', active: leatherPresetActive, prompt: '將主沙發更換為溫潤色澤的頂級棕色皮革沙發' },
+                    { key: 'dining_sideboard', rooms: [RoomType.DINING_ROOM], name: '🪑 餐廳輕奢餐邊矮櫃', category: 'soft_furniture', recLabel: '風格儲物', desc: '北美胡桃木與半透長虹玻璃拼貼，收納餐盤及咖啡器具優美典雅。', active: diningSideboardAdded, prompt: '在餐廳牆邊配置輕奢長春花玻璃餐邊櫃' },
+                    { key: 'office_bookcase', rooms: [RoomType.OFFICE], name: '📚 書房高檔隔板滿牆書櫃', category: 'soft_furniture', recLabel: '風格儲物', desc: '無背板大空間直落式多層書隔，隨心佈置藝術書籍與珍藏展品。', active: officeBookcaseAdded, prompt: '在書房牆面佈置通頂多層實木大書櫃' },
+                    { key: 'wardrobe', rooms: [RoomType.BEDROOM], name: '🗃️ 臥室金屬收納大衣櫃', category: 'soft_furniture', recLabel: '風格儲物', desc: '極高對開高光澤烤漆長門板搭配精緻鍍金拉手，提供極致奢華的大幅床邊收納可能。', active: wardrobeAdded, prompt: '在臥室佈置一座簡潔美觀的高大收納衣櫃' },
+                    { key: 'wine_cabinet', rooms: [RoomType.LIVING_ROOM, RoomType.DINING_ROOM], name: '🍷 餐廳玻璃恆溫落地酒櫃', category: 'soft_furniture', recLabel: '風格儲物', desc: '添置奢華黑色框架與暗黑色高透防爆玻璃的嵌入式落地酒櫃。', active: wineCabinetAdded, prompt: '在空間中添置一座優雅奢華的恆溫玻璃落地酒櫃' },
+                    { key: 'bar_cart', rooms: [RoomType.LIVING_ROOM, RoomType.DINING_ROOM], name: '🥂 爵士白吧台手推車', category: 'soft_furniture', recLabel: '風格軟裝', desc: '拉絲黃銅金屬框架，上下雙層奢華大理石板與精緻酒具。', active: barCartAdded, prompt: '在空間擺設輕奢黃銅大理石頂級雙層移動吧台車' },
+                    { key: 'cat_tower', rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM], name: '🐱 實木貓咪攀爬架', category: 'soft_furniture', recLabel: '風格軟裝', desc: '進口松木多層跳台、劍麻實木抓柱與頂端圓形溫馨貓窩。', active: catTowerAdded, prompt: '設置北歐風格的松木貓爬架，結合天然麻繩抓柱' },
+                    { key: 'shoe_cabinet', name: '👞 櫻桃木格柵對開鞋櫃', category: 'soft_furniture', recLabel: '風格軟裝', desc: '傳統卡榫榫接、經典櫻桃木深沉色澤，飾有防塵通風格柵木板以及精美雙拉絲實心把手。', active: shoeCabinetAdded, prompt: '在玄關或角落擺設一座櫻桃木格柵雕工雙門鞋櫃' },
+                    { key: 'cushions', rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM], name: '🛋️ 絲絨軟靠墊抱枕組', category: 'soft_furniture', recLabel: '風格裝飾', desc: '提供一組極細密絨毛工藝、融入低飽和莫蘭迪撞色的靠面抱枕，營造綿密放鬆感。', active: cushionsAdded, prompt: '在沙發或床邊置放具有低飽和色澤的莫蘭迪絨質抱枕' },
 
                     // --- Lighting Category ---
-                    {
-                      key: 'lamp',
-                      name: '💡 落日星辰角落地燈',
-                      category: 'lighting',
-                      recLabel: '燈飾照明',
-                      desc: '角落嵌入折射微瀾晚霞暖橘夕陽光影的落日藝術立燈。',
-                      active: floorLampAdded,
-                      prompt: '在角落或天花板邊緣導入柔和的暖黃色落日落地燈'
-                    },
-                    {
-                      key: 'table_lamp',
-                      name: '🪔 摺紙百褶檯燈',
-                      category: 'lighting',
-                      recLabel: '燈飾照明',
-                      desc: '侘寂復古質地褶縐燈罩配上細巧黃銅燈橈，釋放宛如微風吹彿的靜謐暖調光晕。',
-                      active: tableLampAdded,
-                      prompt: '在床頭櫃或書桌頂部架設一座褶縐 Origami 百褶摺紙精緻精美檯燈'
-                    },
-                    {
-                      key: 'mushroom_lamp',
-                      name: '🍄 義式奶油玻璃蘑菇檯燈',
-                      category: 'lighting',
-                      recLabel: '復古蘑菇燈',
-                      desc: '亮麗的圓拱壓克力與吹製奶油玻璃燈身，折射出慵懶溫存的七十年代復古暖流。',
-                      active: mushroomLampAdded,
-                      prompt: '在房間中置入一展溫馨亮麗的義式奶油玻璃蘑菇檯燈'
-                    },
-                    {
-                      key: 'vintage_lamp',
-                      name: '📻 復古長型祖母綠書桌燈',
-                      category: 'lighting',
-                      recLabel: '祖母綠檯燈',
-                      desc: '經典黃銅重基座拉絲燈桿配上瑩潤祖母綠玻璃，展現學院派與大正浪漫的優雅情懷。',
-                      active: vintageLampAdded,
-                      prompt: '在桌面上添置一盞極具年代感與浪漫文藝氣息的祖母綠玻璃檯燈'
-                    },
-                    {
-                      key: 'cantilever_lamp',
-                      name: '📐 北歐極簡懸臂折疊落地燈',
-                      category: 'lighting',
-                      recLabel: '懸臂設計燈',
-                      desc: '雙節可調彈性碳鋼懸臂設計，配手感微褶宣紙燈罩，提供安穩聚焦的精準投光角度。',
-                      active: cantileverLampAdded,
-                      prompt: '在角落擺設一盞充滿力學設計張力的極簡懸臂落地燈'
-                    },
-                    {
-                      key: 'retro_sphere_lamp',
-                      name: '💡 1970 太空球形電鍍落地燈',
-                      category: 'lighting',
-                      recLabel: '太空前衛燈',
-                      desc: '三頭高低錯落分佈的電鍍高亮鍍鉻球形燈罩，折射全幅空間，自帶太空時代的前衛感。',
-                      active: retroSphereLampAdded,
-                      prompt: '在死角增設一組前衛藝術感的球形電鍍落地燈'
-                    },
+                    { key: 'lamp', name: '💡 落日星辰角落地燈', category: 'lighting', recLabel: '燈飾照明', desc: '角落嵌入折射微瀾晚霞暖橘夕陽光影的落日藝術立燈。', active: floorLampAdded, prompt: '在角落或天花板邊緣導入柔和的暖黃色落日落地燈' },
+                    { key: 'table_lamp', rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM, RoomType.OFFICE], name: '🪔 摺紙百褶檯燈', category: 'lighting', recLabel: '燈飾照明', desc: '侘寂復古質地褶縐燈罩配上細巧黃銅燈橈，釋放宛如微風吹彿的靜謐暖調光晕。', active: tableLampAdded, prompt: '在床頭櫃或書桌頂部架設一座褶縐 Origami 百褶摺紙精緻精美檯燈' },
+                    { key: 'mushroom_lamp', rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM], name: '🍄 義式奶油玻璃蘑菇檯燈', category: 'lighting', recLabel: '復古蘑菇燈', desc: '亮麗的圓拱壓克力與吹製奶油玻璃燈身，折射出慵懶溫存的七十年代復古暖流。', active: mushroomLampAdded, prompt: '在房間中置入一展溫馨亮麗的義式奶油玻璃蘑菇檯燈' },
+                    { key: 'vintage_lamp', rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM, RoomType.OFFICE], name: '📻 復古長型祖母綠書桌燈', category: 'lighting', recLabel: '祖母綠檯燈', desc: '經典黃銅重基座拉絲燈桿配上瑩潤祖母綠玻璃，展現學院派與大正浪漫的優雅情懷。', active: vintageLampAdded, prompt: '在桌面上添置一盞極具年代感與浪漫文藝氣息的祖母綠玻璃檯燈' },
+                    { key: 'cantilever_lamp', rooms: [RoomType.LIVING_ROOM, RoomType.OFFICE], name: '📐 北歐極簡懸臂折疊落地燈', category: 'lighting', recLabel: '懸臂設計燈', desc: '雙節可調彈性碳鋼懸臂設計，配手感微褶宣紙燈罩，提供安穩聚焦的精準投光角度。', active: cantileverLampAdded, prompt: '在角落擺設一盞充滿力學設計張力的極簡懸臂落地燈' },
+                    { key: 'retro_sphere_lamp', rooms: [RoomType.LIVING_ROOM], name: '💡 1970 太空球形電鍍落地燈', category: 'lighting', recLabel: '太空前衛燈', desc: '三頭高低錯落分佈的電鍍高亮鍍鉻球形燈罩，折射全幅空間，自帶太空時代的前衛感。', active: retroSphereLampAdded, prompt: '在死角增設一組前衛藝術感的球形電鍍落地燈' },
                     {
                       key: 'ceiling_modern',
                       name: '💡 天花：現代極簡微米筒燈',
@@ -6464,53 +6349,30 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
                       active: clockAdded,
                       prompt: '在牆面掛設一座現代金屬拉絲極簡指針掛鐘'
                     },
-                    {
-                      key: 'turntable',
-                      name: '🎵 職人手提黑膠唱片機',
-                      category: 'accents',
-                      recLabel: '黑膠文藝',
-                      desc: '懷舊皮質手提箱外觀內嵌全金屬黑膠唱片盤與精緻銅針，播放歲月留下的黑膠聲音。',
-                      active: turntableAdded,
-                      prompt: '在桌櫃或置物面佈設一台手提皮箱黑膠唱片機'
-                    },
-                    {
-                      key: 'sculpture',
-                      name: '🧱 侘寂工藝石膏幾何雕塑',
-                      category: 'accents',
-                      recLabel: '藝術雕塑',
-                      desc: '由洞石、米黃大理石相互平衡契合的工藝石雕飾品，散發內斂優雅的侘寂沈思氣質。',
-                      active: sculptureAdded,
-                      prompt: '在空間中的桌面或展示台置放一尊侘寂工藝石膏雕塑'
-                    },
-                    {
-                      key: 'stacked_books',
-                      name: '📚 巴黎藝術史疊書與香氛燭',
-                      category: 'accents',
-                      recLabel: '桌面藝文',
-                      desc: '經典精裝藝術與建築史畫冊整齊堆疊，其上靜置一只特調磨砂玻璃香草香氛蠟燭。',
-                      active: stackedBooksAdded,
-                      prompt: '在茶几或置物櫃面搭配一疊巴黎藝術史學疊書與頂部精美香氛蠟燭'
-                    }
+                    { key: 'turntable', rooms: [RoomType.LIVING_ROOM, RoomType.OFFICE], name: '🎵 職人手提黑膠唱片機', category: 'accents', recLabel: '黑膠文藝', desc: '懷舊皮質手提箱外觀內嵌全金屬黑膠唱片盤與精緻銅針，播放歲月留下的黑膠聲音。', active: turntableAdded, prompt: '在桌櫃或置物面佈設一台手提皮箱黑膠唱片機' },
+                    { key: 'sculpture', name: '🧱 侘寂工藝石膏幾何雕塑', category: 'accents', recLabel: '藝術雕塑', desc: '由洞石、米黃大理石相互平衡契合的工藝石雕飾品，散發內斂優雅的侘寂沈思氣質。', active: sculptureAdded, prompt: '在空間中的桌面或展示台置放一尊侘寂工藝石膏雕塑' },
+                    { key: 'stacked_books', rooms: [RoomType.LIVING_ROOM, RoomType.OFFICE, RoomType.BEDROOM], name: '📚 巴黎藝術史疊書與香氛燭', category: 'accents', recLabel: '桌面藝文', desc: '經典精裝藝術與建築史畫冊整齊堆疊，其上靜置一只特調磨砂玻璃香草香氛蠟燭。', active: stackedBooksAdded, prompt: '在茶几或置物櫃面搭配一疊巴黎藝術史學疊書與頂部精美香氛蠟燭' }
                   ]
                     .filter(item => selectedPresetTab === 'all' || item.category === selectedPresetTab)
+                    .filter(item => !(item as any).rooms || (item as any).rooms.includes(roomType))
                     .map(item => (
                       <div
                         key={item.key}
                         onClick={() => handleToggleInternalRefinement(item.key, item.prompt)}
                         className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer flex flex-col gap-1 hover:bg-neutral-900/60 leading-normal ${item.active ? 'bg-indigo-950/20 border-indigo-500/80 shadow-md' : 'bg-neutral-900/40 border-neutral-800'}`}
                       >
-                        <div className="flex justify-between items-center">
-                          <span className="text-[13px] font-bold text-neutral-100">{item.name}</span>
-                          <span className={`text-sm px-1.5 py-0.2 rounded-full font-bold ${item.active ? 'bg-indigo-500/30 text-indigo-300' : 'bg-neutral-800 text-neutral-500'}`}>
+                        <div className="flex justify-between items-start gap-2">
+                          <span className="text-[13px] font-bold text-neutral-100 leading-snug">{item.name}</span>
+                          <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded-md font-semibold leading-none border ${item.active ? 'bg-indigo-500/20 border-indigo-500/30 text-indigo-300' : 'bg-neutral-850 border-neutral-800 text-neutral-500'}`}>
                             {item.recLabel}
                           </span>
                         </div>
-                        <span className="text-xs text-neutral-400 select-none leading-normal">
+                        <span className="text-[11px] text-neutral-500 select-none leading-relaxed">
                           {item.desc}
                         </span>
                         <div className="flex justify-between items-center pt-1 mt-0.5 border-t border-neutral-800/40 select-none">
-                          <span className="text-sm text-neutral-500">點選以切換佈置狀態</span>
-                          <div className="flex items-center gap-1 text-xs font-extrabold">
+                          <span className="text-[11px] text-neutral-600">點選以切換佈置狀態</span>
+                          <div className="flex items-center gap-1 text-[11px] font-bold">
                             {item.active ? (
                               <span className="text-emerald-400 flex items-center gap-0.5 animate-pulse">
                                 <CheckCircle2 size={10} /> 已啟動裝飾

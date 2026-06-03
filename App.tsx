@@ -1,22 +1,117 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Wand2, Download, Maximize2, RefreshCw, Key, ChevronRight, CheckCircle2, ScanEye, Sparkles, Send, Armchair, X, Undo2, Redo2, History, Eye, EyeOff, Box, Lightbulb, SlidersHorizontal } from 'lucide-react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { Wand2, Download, Maximize2, RefreshCw, Key, ChevronRight, CheckCircle2, ScanEye, Sparkles, Send, Armchair, X, Undo2, Redo2, History, Eye, EyeOff, Box, Lightbulb, SlidersHorizontal, ClipboardCheck, AlertTriangle, CircleDashed } from 'lucide-react';
 import ImageUpload from './components/ImageUpload';
 import Button from './components/Button';
-import AIDesignerChat from './components/AIDesignerChat';
 import AIDesignerSidebar from './components/AIDesignerSidebar';
-import { DesignConfig, DesignStyle, RoomType, ROOM_TYPE_LABELS, DESIGN_STYLE_LABELS } from './types';
+import { DesignConfig, DesignStyle, RoomType, ROOM_TYPE_LABELS, DESIGN_STYLE_LABELS, DesignVersionRecord, ProjectBrief } from './types';
 import { DESIGN_STYLES, ROOM_TYPES, SAMPLE_PROMPTS } from './constants';
-import { generateDesign, analyzeRoomImages, editDesignImage, extractSpatialContextForRendering } from './services/geminiService';
-import { ThreeRoomViewer } from './components/ThreeRoomViewer';
+import { generateDesign, analyzeRoomImages, editDesignImage, extractSpatialContextForRendering, evaluateDesignChecklist } from './services/geminiService';
 
-const REFINE_PRESETS = [
-  { label: "🛋️ 頂級皮革沙發", prompt: "將主沙發更換為溫潤色澤的頂級棕色皮革沙發，增添空間沉穩感與奢華質感" },
-  { label: "🪵 北歐拼木地板", prompt: "將地板全數鋪設為溫暖質樸的北歐橡木人字拼木地板，提升自然層次" },
-  { label: "💡 溫馨落日氣氛燈", prompt: "在角落或天花板邊緣導入柔和的暖黃色落日落地燈與隱藏式線性光源" },
-  { label: "🪴 琴葉榕室內綠植", prompt: "在房間光照良好的角落佈置高大的琴葉榕盆栽與部分蔓綠絨垂吊綠植，營造生命氣息" },
-  { label: "🎨 現代幾何抽象畫", prompt: "在主牆面懸掛一幅以黑、白、金為主軸的現代極簡手繪幾何抽象藝術畫作" },
-  { label: "🧱 清水混凝土背景", prompt: "將電視迎光面的背牆材質改為乾淨、優雅的清水混凝土模板牆，呈現侘寂風格" }
-];
+const ThreeRoomViewer = lazy(() =>
+  import('./components/ThreeRoomViewer').then(m => ({ default: m.ThreeRoomViewer }))
+);
+
+class ThreeViewerErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(err: Error) { console.error('[ThreeRoomViewer]', err); }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-4 text-neutral-500 h-full">
+          <div className="p-4 bg-neutral-900 border border-neutral-800 rounded-xl text-center space-y-3">
+            <p className="text-sm text-neutral-300">3D 場景載入失敗</p>
+            <p className="text-xs text-neutral-600">可能是 WebGL 不支援或 GPU 資源不足</p>
+            <button
+              onClick={() => this.setState({ hasError: false })}
+              className="px-4 py-2 bg-white text-black text-xs font-semibold rounded-lg hover:bg-neutral-200 transition-colors"
+            >
+              重新嘗試
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const REFINE_PRESETS_BY_ROOM: Record<string, { label: string; prompt: string }[]> = {
+  [RoomType.LIVING_ROOM]: [
+    { label: "🛋️ 頂級皮革沙發", prompt: "將主沙發更換為溫潤色澤的頂級棕色皮革沙發，增添空間沉穩感與奢華質感" },
+    { label: "🪵 北歐拼木地板", prompt: "將地板全數鋪設為溫暖質樸的北歐橡木人字拼木地板，提升自然層次" },
+    { label: "💡 溫馨落日氣氛燈", prompt: "在角落或天花板邊緣導入柔和的暖黃色落日落地燈與隱藏式線性光源" },
+    { label: "🪴 琴葉榕室內綠植", prompt: "在房間光照良好的角落佈置高大的琴葉榕盆栽與部分蔓綠絨垂吊綠植，營造生命氣息" },
+    { label: "🎨 現代幾何抽象畫", prompt: "在主牆面懸掛一幅以黑、白、金為主軸的現代極簡手繪幾何抽象藝術畫作" },
+    { label: "🧱 清水混凝土背景", prompt: "將電視迎光面的背牆材質改為乾淨、優雅的清水混凝土模板牆，呈現侘寂風格" },
+  ],
+  [RoomType.BEDROOM]: [
+    { label: "🛏️ 亞麻質感床頭板", prompt: "將床頭板更換為柔軟圓弧形的亞麻布包覆床頭板，增添臥室溫柔層次" },
+    { label: "🪟 雪紡飄逸窗簾", prompt: "將窗簾更換為半透明白色雪紡飄逸窗簾，讓晨光柔和灑入空間" },
+    { label: "🕯️ 北歐原木床邊燈", prompt: "在床的兩側各擺放一盞線條簡約的北歐原木床頭燈，增添暖意" },
+    { label: "🎀 奶油色系寢具", prompt: "將床組更換為奶油白亞麻質感被套與抱枕組合，提升整體清新質感" },
+    { label: "🖼️ 療癒系水彩掛畫", prompt: "在床頭牆面掛上一組粉彩水彩風格的植物或山水插畫，增添臥室療癒感" },
+    { label: "🪴 空氣鳳梨擺設", prompt: "在窗台或床頭櫃上佈置幾株無土小型植物與苔球，自然清新" },
+  ],
+  [RoomType.KITCHEN]: [
+    { label: "🏺 義式花磚牆面", prompt: "將廚房料理台上方牆面貼上鮮豔對比的義式手繪幾何花磚，提升視覺焦點" },
+    { label: "🔆 黃銅吊掛燈具", prompt: "在廚房中島或料理台上方加入一排復古黃銅吊燈，增添輕奢氛圍" },
+    { label: "🪨 深色石材檯面", prompt: "將廚房檯面更換為沉穩低調的深灰色石英石或大理石材，提升高級質感" },
+    { label: "🔩 黑色霧面五金", prompt: "將所有把手、水龍頭更換為統一的黑色霧面金屬五金，現代感倍增" },
+    { label: "🗃️ 玻璃門吊櫃", prompt: "將部分上吊櫃門更換為透明玻璃門，展示精美器皿並讓空間更通透" },
+    { label: "🌿 香草植物小花園", prompt: "在窗台旁設置羅勒、迷迭香等香草植物小盆栽牆，實用且充滿生活感" },
+  ],
+  [RoomType.BATHROOM]: [
+    { label: "🛁 獨立式浴缸", prompt: "在浴室角落或窗邊加入一個白色橢圓形獨立浴缸，提升奢華感" },
+    { label: "🪨 天然石材牆面", prompt: "將淋浴區牆面更換為米白色天然大理石磚，呈現高端 spa 質感" },
+    { label: "🔆 鏡前暖白燈帶", prompt: "在洗手台鏡子四周加入柔和的暖白色 LED 燈帶，提供均勻美妝照明" },
+    { label: "🧴 黃銅水龍頭升級", prompt: "將所有水龍頭更換為優雅復古的拉絲黃銅款式，提升整體精緻度" },
+    { label: "🌱 浴室綠植佈置", prompt: "在浴室窗邊擺放喜濕的蕨類植物與白鶴芋盆栽，增添自然氣息" },
+    { label: "🪥 木質置物架", prompt: "加入一組竹製或橡木製的壁掛置物架，收納毛巾與保養品兼具美觀" },
+  ],
+  [RoomType.DINING_ROOM]: [
+    { label: "🪑 天鵝絨坐墊餐椅", prompt: "將餐椅更換為北歐風格原木椅腳搭配天鵝絨坐墊，色彩可跳色對比" },
+    { label: "🕯️ 幾何感吊燈", prompt: "在餐桌正上方加入一盞造型獨特的幾何鐵件吊燈，成為視覺焦點" },
+    { label: "🌺 鮮花中心擺設", prompt: "在餐桌中央置入一個插著新鮮花卉的極簡花器作為餐桌中心擺件" },
+    { label: "🪞 大型裝飾掛鏡", prompt: "在餐廳側牆加入一面大型圓形或方形裝飾鏡，視覺放大空間感" },
+    { label: "🍷 酒架展示牆", prompt: "在餐廳背牆設計一組木質開放式酒瓶展示架，兼具展示與收納功能" },
+    { label: "🎨 大型主題壁畫", prompt: "在主要牆面貼上一幅大型風景或抽象手繪壁畫，豐富空間層次" },
+  ],
+  [RoomType.OFFICE]: [
+    { label: "📚 頂天立地書牆", prompt: "沿辦公室主牆設計一整面頂天立地的開放式書架，展示書籍與收藏品" },
+    { label: "💡 護眼工作檯燈", prompt: "在書桌角落加入一盞可調色溫的設計感北歐風工作檯燈，兼具美感與功能" },
+    { label: "🪴 大型垂吊綠植", prompt: "在辦公區角落吊掛多盆垂吊綠植如黃金葛或鐵線蕨，增加自然活力" },
+    { label: "🎨 激勵系手寫板牆", prompt: "在工作區一面牆改為黑板漆牆，方便記錄靈感與日程" },
+    { label: "🖼️ 藝術掛畫牆", prompt: "在辦公室牆面設計一組多幅不同尺寸的藝術裝飾畫組合，提升空間品味" },
+    { label: "🪑 人體工學椅升級", prompt: "將辦公椅更換為符合人體工學設計的高背皮質辦公椅，提升舒適度" },
+  ],
+  [RoomType.STUDIO]: [
+    { label: "🛋️ 模組化沙發床", prompt: "將主臥區沙發更換為可折疊展開的高質感模組化沙發床，兼顧睡眠與起居" },
+    { label: "📐 玻璃隔屏分區", prompt: "加入一組半透明鐵件玻璃隔屏，在不阻隔光線的前提下區分睡眠與客廳空間" },
+    { label: "🪵 懸浮牆面收納", prompt: "沿主牆設計一排懸浮式木質層板與收納格，提升垂直空間利用率" },
+    { label: "🪞 大型落地鏡", prompt: "在靠近門口的牆面加入一面全身落地鏡，視覺放大整體空間感" },
+    { label: "💡 軌道燈彈性照明", prompt: "天花板導入可旋轉調向的黑色軌道燈組，靈活照亮不同生活區域" },
+    { label: "🌿 角落植栽牆", prompt: "在窗邊或角落設計一組多層次的植栽展示架，引入自然生命感" },
+  ],
+};
+
+// Convert API-returned base64 data URL to a Blob URL to save JS heap memory.
+// Each generated image is ~1–2 MB as base64; a Blob URL is just a short reference.
+const base64ToBlobUrl = (dataUrl: string): string => {
+  if (dataUrl.startsWith('blob:')) return dataUrl;
+  const [header, data] = dataUrl.split(',');
+  const mime = header.match(/:(.*?);/)?.[1] ?? 'image/png';
+  const binary = atob(data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return URL.createObjectURL(new Blob([bytes], { type: mime }));
+};
 
 const USER_API_KEY_STORAGE_KEY = 'interior-design-studio.geminiApiKey';
 
@@ -33,23 +128,69 @@ const App: React.FC = () => {
   const generatingRef = useRef(false);
   const analyzingRef = useRef(false);
   const editingRef = useRef(false);
+  const spatialContextCache = useRef<Map<string, string>>(new Map());
+  const blobUrlsRef = useRef<Set<string>>(new Set());
+
+  // Revoke all Blob URLs on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => { blobUrlsRef.current.forEach(url => URL.revokeObjectURL(url)); };
+  }, []);
+
+  type VersionRecordDraft = Omit<DesignVersionRecord, 'id' | 'imageUrl' | 'createdAt' | 'checklist' | 'checklistStatus'>;
+
+  const createVersionRecord = (imageUrl: string, draft: VersionRecordDraft): DesignVersionRecord => ({
+    id: globalThis.crypto?.randomUUID?.() ?? `version-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    imageUrl,
+    createdAt: Date.now(),
+    checklistStatus: 'idle',
+    ...draft,
+  });
+
+  const replaceDesignHistory = (imageSource: string, draft: VersionRecordDraft) => {
+    const blobUrl = base64ToBlobUrl(imageSource);
+    blobUrlsRef.current.forEach(url => {
+      if (url !== blobUrl) URL.revokeObjectURL(url);
+    });
+    blobUrlsRef.current.clear();
+    blobUrlsRef.current.add(blobUrl);
+    const record = createVersionRecord(blobUrl, draft);
+    setHistory([blobUrl]);
+    setHistoryIndex(0);
+    setVersionRecords([record]);
+    runDesignChecklist(record);
+  };
+
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState(getStoredApiKey);
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
-  const [showAIChat, setShowAIChat] = useState(false);
   const [sidebarMode, setSidebarMode] = useState<'manual' | 'ai'>('manual');
   
+  // Lighting time-of-day for render quality
+  type LightingTime = 'morning' | 'afternoon' | 'evening';
+  const LIGHTING_OPTIONS: { key: LightingTime; label: string; desc: string }[] = [
+    { key: 'morning',   label: '晨光', desc: 'soft golden morning light from the east' },
+    { key: 'afternoon', label: '日光', desc: 'bright neutral daylight' },
+    { key: 'evening',   label: '暮光', desc: 'warm amber sunset lighting' },
+  ];
+  const [lightingTime, setLightingTime] = useState<LightingTime>('afternoon');
+
   // View mode & Refinement state for Solution A (3D Sandbox)
   const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
-  const [activeWorkflowStep, setActiveWorkflowStep] = useState<number>(1);
+  const [activeWorkflowStep, setActiveWorkflowStep] = useState<1 | 2 | 3 | 4>(1);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [showTipsPopover, setShowTipsPopover] = useState(false);
+  const [resultInfoTab, setResultInfoTab] = useState<'version' | 'check'>('check');
   const [appliedRefinements, setAppliedRefinements] = useState<string[]>([]);
 
   // History State for Undo/Redo
   const [history, setHistory] = useState<string[]>([]);
+  const [versionRecords, setVersionRecords] = useState<DesignVersionRecord[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [isComparing, setIsComparing] = useState(false);
+  const [currentProjectBrief, setCurrentProjectBrief] = useState<ProjectBrief | null>(null);
+
+  // Optional room dimensions injected into the render prompt
+  const [roomDimensions, setRoomDimensions] = useState({ length: '', width: '', height: '' });
 
   // Synchronize activeWorkflowStep with viewMode and display state
   useEffect(() => {
@@ -82,6 +223,82 @@ const App: React.FC = () => {
     floorPlan: null,
     realScenes: []
   });
+
+  const hasSpaceReference = Boolean(config.floorPlan || config.realScenes.length > 0);
+  const hasBrief = Boolean(currentProjectBrief?.summary || config.prompt.trim());
+  const hasTargetRoom = Boolean(config.roomType);
+  const setupChecklist = [
+    { label: '現況照片或平面圖', done: hasSpaceReference },
+    { label: '裝修需求', done: hasBrief },
+    { label: '目標空間', done: hasTargetRoom },
+  ];
+  const readyCount = setupChecklist.filter(item => item.done).length;
+  const briefFacts = [
+    currentProjectBrief?.area,
+    currentProjectBrief?.household,
+    currentProjectBrief?.budget,
+    currentProjectBrief?.stylePreference,
+    currentProjectBrief?.targetRoom,
+  ].filter(Boolean);
+
+  const nextStepGuide = {
+    1: {
+      title: '上傳現況',
+      now: '上傳平面圖、格局圖或現場照片；如果手邊資料不完整，也可以先放一張最清楚的照片開始。',
+      ai: 'AI 會讀取格局、門窗、採光和主要牆面，並提醒哪些資料可能還不夠。',
+      result: '完成後會得到可用於設計討論的空間基礎，後續生成比較不容易偏離現況。',
+    },
+    2: {
+      title: '整理需求',
+      now: '用 AI 引導回答家庭成員、預算、生活痛點、風格偏好和不能接受的元素。',
+      ai: 'AI 會把零散回答整理成 ProjectBrief，並轉成可用於生成的設計指令。',
+      result: '完成後會得到需求摘要與渲染指令，不需要自己寫 prompt。',
+    },
+    3: {
+      title: '看設計圖',
+      now: '先看整體風格、色調、主家具比例和空間氛圍，暫時不用糾結每個小物件。',
+      ai: 'AI 會依你的現況與需求生成第一版設計圖，也可以依一句話做局部微調。',
+      result: '完成後會得到設計圖、版本紀錄，以及好不好住的初步檢查。',
+    },
+    4: {
+      title: '檢查配置',
+      now: '切到配置檢查，從平面、正面和自由視角看家具大小、走道寬度與門窗位置。',
+      ai: 'AI 會保留你的設計方向，協助把漂亮的圖回到可居住的尺寸與動線。',
+      result: '完成後會得到更接近可溝通、可估價的家具配置參考。',
+    },
+  }[activeWorkflowStep];
+
+  const displayedVersionIndex = isComparing && historyIndex > 0 ? historyIndex - 1 : historyIndex;
+  const currentVersion = displayedVersionIndex >= 0 ? versionRecords[displayedVersionIndex] : null;
+  const sourceLabels: Record<DesignVersionRecord['source'], string> = {
+    manual_generate: '手動生成',
+    ai_generate: 'AI 訪談生成',
+    import: '匯入圖',
+    magic_edit: '局部微調',
+  };
+
+  const runDesignChecklist = async (record: DesignVersionRecord) => {
+    setVersionRecords(prev => prev.map(item =>
+      item.id === record.id ? { ...item, checklistStatus: 'checking' } : item
+    ));
+
+    try {
+      const checklist = await evaluateDesignChecklist(record.imageUrl, {
+        roomType: record.roomType,
+        style: record.style,
+        prompt: record.prompt,
+        projectBrief: record.projectBrief,
+      });
+
+      setVersionRecords(prev => prev.map(item =>
+        item.id === record.id ? { ...item, checklist, checklistStatus: 'done' } : item
+      ));
+    } catch {
+      setVersionRecords(prev => prev.map(item =>
+        item.id === record.id ? { ...item, checklistStatus: 'error' } : item
+      ));
+    }
+  };
 
   // Check for API Key on mount
   useEffect(() => {
@@ -128,20 +345,20 @@ const App: React.FC = () => {
       const errorMessage = err.message || JSON.stringify(err);
 
       if (
-        errorMessage.includes("403") || 
+        errorMessage.includes("403") ||
         errorString.includes("403") ||
         errorMessage.includes("permission") ||
         errorMessage.includes("Requested entity was not found")
       ) {
-          msg = "Permission denied. The selected API key project does not have access to the required Gemini models. Please select a paid project.";
+          msg = "權限被拒絕。此 API Key 所屬專案沒有存取 Gemini 圖像模型的權限，請確認已啟用付費方案並選擇正確的 API Key。";
           setApiKeyReady(false);
           setTimeout(() => setShowApiKeyModal(true), 100);
       } else if (
-        errorMessage.includes("500") || 
+        errorMessage.includes("500") ||
         errorString.includes("500") ||
         errorMessage.includes("Internal error")
       ) {
-          msg = "The AI model encountered a temporary internal error (500). Please try simplifying your request or try again in a moment.";
+          msg = "AI 模型發生暫時性內部錯誤（500）。請簡化需求描述或稍後再試。";
       } else {
           msg = err.message || msg;
       }
@@ -156,7 +373,7 @@ const App: React.FC = () => {
     if (config.realScenes.length > 0) filesToAnalyze.push(...config.realScenes);
 
     if (filesToAnalyze.length === 0) {
-      setError("Please upload a floor plan or at least one real scene image to analyze.");
+      setError("請上傳平面配置圖或至少一張實景照片後，再進行空間分析。");
       return;
     }
 
@@ -182,37 +399,47 @@ const App: React.FC = () => {
     if (generatingRef.current || isGenerating) return;
 
     if (!config.floorPlan && config.realScenes.length === 0) {
-      setError("Please upload at least a floor plan or a real scene image.");
+      setError("請至少上傳一張平面配置圖或實景照片，才能開始生成。");
       return;
     }
 
     generatingRef.current = true;
     setIsGenerating(true);
     setError(null);
-    setHistory([]);
-    setHistoryIndex(-1);
-    setEditPrompt("");
-    setIsComparing(false);
-    setAppliedRefinements([]);
 
     try {
-      let enrichedConfig = { ...config };
+      const lightingDesc = LIGHTING_OPTIONS.find(o => o.key === lightingTime)?.desc ?? '';
+      const { length, width, height } = roomDimensions;
+      const dimTag = (length && width && height)
+        ? `Room dimensions: ${length}m × ${width}m, ceiling height ${height}m.`
+        : (length && width) ? `Room dimensions: ${length}m × ${width}m.` : '';
+      const extras = [dimTag, `Lighting: ${lightingDesc}.`].filter(Boolean).join(' ');
+      let enrichedConfig = {
+        ...config,
+        prompt: config.prompt ? `${config.prompt}\n${extras}` : extras,
+      };
 
-      // If floor plan is provided, pre-analyse spatial layout for the target room
-      // and inject it into the prompt for more accurate rendering
+      // If floor plan is provided, pre-analyse spatial layout for the target room.
+      // Cache the result by floor plan identity + room type to avoid a redundant
+      // API call when the user re-generates without changing inputs.
       if (config.floorPlan) {
         try {
-          const spatialContext = await extractSpatialContextForRendering(
-            config.floorPlan,
-            config.roomType,
-            config.realScenes.length > 0 ? config.realScenes : undefined
-          );
+          const cacheKey = `${config.floorPlan.name}|${config.floorPlan.size}|${config.roomType}`;
+          let spatialContext = spatialContextCache.current.get(cacheKey);
+          if (!spatialContext) {
+            spatialContext = await extractSpatialContextForRendering(
+              config.floorPlan,
+              config.roomType,
+              config.realScenes.length > 0 ? config.realScenes : undefined
+            );
+            if (spatialContext) spatialContextCache.current.set(cacheKey, spatialContext);
+          }
           if (spatialContext) {
             const spatialTag = `[平面圖空間語境: ${spatialContext}]`;
             enrichedConfig = {
-              ...config,
-              prompt: config.prompt
-                ? `${config.prompt}\n\n${spatialTag}`
+              ...enrichedConfig,
+              prompt: enrichedConfig.prompt
+                ? `${enrichedConfig.prompt}\n\n${spatialTag}`
                 : spatialTag,
             };
           }
@@ -222,8 +449,20 @@ const App: React.FC = () => {
       }
 
       const resultImage = await generateDesign(enrichedConfig);
-      setHistory([resultImage]);
-      setHistoryIndex(0);
+      // Only reset history after a successful generation — preserves last image on failure
+      replaceDesignHistory(resultImage, {
+        source: 'manual_generate',
+        title: '手動設定生成',
+        prompt: enrichedConfig.prompt,
+        style: enrichedConfig.style,
+        roomType: enrichedConfig.roomType,
+        changeReason: `以${ROOM_TYPE_LABELS[enrichedConfig.roomType]}與${DESIGN_STYLE_LABELS[enrichedConfig.style]}作為視覺定調。`,
+        aiSummary: currentProjectBrief?.summary,
+        projectBrief: currentProjectBrief,
+      });
+      setEditPrompt("");
+      setIsComparing(false);
+      setAppliedRefinements([]);
     } catch (err: any) {
       handleError(err);
     } finally {
@@ -234,20 +473,22 @@ const App: React.FC = () => {
 
   const handleImportDesign = (file: File | null) => {
     if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      if (result) {
-        setHistory([result]);
-        setHistoryIndex(0);
-        setIsComparing(false);
-        setEditPrompt("");
-        setError(null);
-        setAppliedRefinements([]); // Clear for imported designs
-      }
-    };
-    reader.readAsDataURL(file);
+    // Use Blob URL directly — no base64 roundtrip needed for imported files
+    const blobUrl = URL.createObjectURL(file);
+    replaceDesignHistory(blobUrl, {
+      source: 'import',
+      title: '匯入既有設計圖',
+      prompt: file.name,
+      style: config.style,
+      roomType: config.roomType,
+      changeReason: '以既有圖片作為版本起點，便於後續局部微調與檢核。',
+      aiSummary: currentProjectBrief?.summary,
+      projectBrief: currentProjectBrief,
+    });
+    setIsComparing(false);
+    setEditPrompt("");
+    setError(null);
+    setAppliedRefinements([]);
   };
 
   const handleMagicEdit = async () => {
@@ -262,13 +503,34 @@ const App: React.FC = () => {
       // Always edit based on the CURRENT (latest) image in the stack
       const sourceImage = history[historyIndex];
       const newImage = await editDesignImage(sourceImage, editPrompt);
-      
+      const newBlobUrl = base64ToBlobUrl(newImage);
+      blobUrlsRef.current.add(newBlobUrl);
+
       // Add to history and remove any future history (if we were in the middle of the stack)
       const newHistory = history.slice(0, historyIndex + 1);
-      newHistory.push(newImage);
-      
+      // Revoke any discarded future Blob URLs
+      history.slice(historyIndex + 1).forEach(url => {
+        URL.revokeObjectURL(url);
+        blobUrlsRef.current.delete(url);
+      });
+      newHistory.push(newBlobUrl);
+
+      const nextRecords = versionRecords.slice(0, historyIndex + 1);
+      const editRecord = createVersionRecord(newBlobUrl, {
+        source: 'magic_edit',
+        title: `局部微調 V${nextRecords.length + 1}`,
+        prompt: editPrompt,
+        style: config.style,
+        roomType: config.roomType,
+        changeReason: editPrompt,
+        aiSummary: currentProjectBrief?.summary,
+        projectBrief: currentProjectBrief,
+      });
+
       setHistory(newHistory);
       setHistoryIndex(newHistory.length - 1);
+      setVersionRecords([...nextRecords, editRecord]);
+      runDesignChecklist(editRecord);
       
       // Record 3D refinement sync
       if (!appliedRefinements.includes(editPrompt)) {
@@ -422,19 +684,6 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* AI Designer Chat Modal */}
-      {showAIChat && (
-        <AIDesignerChat
-          onClose={() => setShowAIChat(false)}
-          onApplySummary={(summary) => {
-            setConfig(prev => ({
-              ...prev,
-              prompt: (prev.prompt ? prev.prompt + '\n\n' : '') + summary
-            }));
-          }}
-        />
-      )}
-
       {/* Lightbox Modal */}
       {showLightbox && displayImage && (
         <div 
@@ -476,12 +725,9 @@ const App: React.FC = () => {
                   <Lightbulb size={18} className="text-indigo-400" />
                 </div>
                 <div>
-                  <div className="text-[10px] font-bold text-indigo-400 tracking-wider uppercase">設計師觀點</div>
+                  <div className="text-[10px] font-bold text-indigo-400 tracking-wider uppercase">下一步提醒</div>
                   <h3 className="text-sm sm:text-base font-bold text-white mt-0.5">
-                    {activeWorkflowStep === 1 && "實景上傳與格局分析指南"}
-                    {activeWorkflowStep === 2 && "需求確認與設計訪談指南"}
-                    {activeWorkflowStep === 3 && "2D 視覺渲染與硬裝定調指南"}
-                    {activeWorkflowStep === 4 && "3D 軟裝配置與動線校準指南"}
+                    {nextStepGuide.title}
                   </h3>
                 </div>
               </div>
@@ -493,52 +739,23 @@ const App: React.FC = () => {
               </button>
             </div>
 
-            {/* Scrollable Content Area */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4 pr-5 scrollbar-thin scrollbar-thumb-neutral-800 scrollbar-track-transparent">
-              <div className="bg-neutral-950 p-4 rounded-xl border border-neutral-800 space-y-3">
-                <span className="text-[10px] font-bold tracking-widest text-indigo-300 uppercase bg-indigo-950 px-2.5 py-1 rounded border border-indigo-900 block w-max">
-                  {activeWorkflowStep === 1 && "第一步：實景上傳"}
-                  {activeWorkflowStep === 2 && "第二步：AI 設計訪談"}
-                  {activeWorkflowStep === 3 && "第三步：2D 視覺渲染"}
-                  {activeWorkflowStep === 4 && "第四步：3D 軟裝配置"}
-                </span>
-                <p className="text-xs sm:text-sm text-neutral-200 leading-relaxed font-normal">
-                  {activeWorkflowStep === 1 && "「先把現況講清楚，設計才有準星。」上傳平面配置圖與實景照片，優先確認格局、採光、門窗位置與既有家具，讓後續訪談與渲染都建立在同一份空間事實上。"}
-                  {activeWorkflowStep === 2 && "「需求不是問卷，而是生活方式的翻譯。」透過 AI 設計訪談整理家庭成員、使用情境、風格偏好、預算與不可妥協條件，再轉成可執行的設計方向。"}
-                  {activeWorkflowStep === 3 && "「2D 渲染負責定調，不急著排滿所有物件。」先確認硬裝、色彩、牆地材、光線氛圍與主要家具語彙，再用局部微調把視覺方向收斂到可施工、可溝通的版本。"}
-                  {activeWorkflowStep === 4 && "「軟裝配置決定日常是否好用。」在 3D 沙盒中檢查家具尺度、走道寬度、開門半徑與視線關係，讓漂亮的畫面落回真實可居住的動線。"}
-                </p>
-              </div>
-
-              {/* Advanced Tips */}
-              <div className="space-y-2 pt-1">
-                <h4 className="text-xs font-semibold text-neutral-300 flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
-                  AI 設計師實務叮嚀：
-                </h4>
-                <ul className="text-xs text-neutral-400 list-disc list-inside space-y-1.5 pl-1 leading-relaxed">
-                  {activeWorkflowStep === 1 && [
-                    "平面圖負責尺寸與格局，實景照片負責材質、天花高度、採光與現場限制，兩者一起上傳判讀會更穩。",
-                    "拍攝實景時盡量涵蓋四個角落、窗邊、門口與主要牆面，避免只拍局部美照導致 AI 誤判空間比例。",
-                    "上傳前先確認圖面方向與房間名稱，後續選擇目標空間時才不會把客廳、餐廳或臥室混在一起。"
-                  ].map((tip, idx) => <li key={idx} className="marker:text-indigo-500">{tip}</li>)}
-                  {activeWorkflowStep === 2 && [
-                    "描述生活情境要比描述家具更有效，例如「常在餐桌工作」比「想要書桌」更容易推導出真正需要的配置。",
-                    "先講清楚家庭成員、寵物、收納量、作息與清潔習慣，AI 才能避開只好看但不好住的方案。",
-                    "把預算、偏好風格與不能接受的元素一起說明，可減少來回修正，也能讓渲染指令更精準。"
-                  ].map((tip, idx) => <li key={idx} className="marker:text-indigo-500">{tip}</li>)}
-                  {activeWorkflowStep === 3 && [
-                    "2D 渲染先看大方向：牆地色、木作比例、燈光氣氛與主家具體量，比小飾品是否精準更重要。",
-                    "材質不要一次堆太多，地板、主牆、櫃體與大型家具最好先控制在 2 至 3 個主要材質系統內。",
-                    "局部微調時一次只改一個目標，例如沙發、牆色或燈帶，較容易比較版本差異並保留原本滿意的畫面。"
-                  ].map((tip, idx) => <li key={idx} className="marker:text-indigo-500">{tip}</li>)}
-                  {activeWorkflowStep === 4 && [
-                    "一般走道建議保留 65 至 80 cm，主要通道或雙人交會區最好抓到 90 至 120 cm。",
-                    "家具不要只看正面效果，還要檢查抽屜、櫃門、冰箱門與椅子後退時是否會撞到動線。",
-                    "地毯、茶几、沙發和邊几要一起看尺度；單件家具漂亮，不代表整組放進空間後比例舒服。"
-                  ].map((tip, idx) => <li key={idx} className="marker:text-indigo-500">{tip}</li>)}
-                </ul>
-              </div>
+            {/* Content Area */}
+            <div className="flex-1 p-6 space-y-3 pr-5">
+              {[
+                ['你現在要做什麼', nextStepGuide.now],
+                ['AI 會幫你做什麼', nextStepGuide.ai],
+                ['完成後會得到什麼', nextStepGuide.result],
+              ].map(([label, text], idx) => (
+                <div key={label} className="bg-neutral-950 p-4 rounded-xl border border-neutral-800 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center">
+                      {idx + 1}
+                    </span>
+                    <span className="text-xs font-bold text-neutral-200">{label}</span>
+                  </div>
+                  <p className="text-xs sm:text-sm text-neutral-400 leading-relaxed">{text}</p>
+                </div>
+              ))}
             </div>
 
             {/* Footer */}
@@ -560,38 +777,38 @@ const App: React.FC = () => {
           ? 'w-full lg:w-0 h-0 lg:h-full opacity-0 pointer-events-none border-b-0 lg:border-r-0 overflow-hidden' 
           : 'w-full lg:w-[380px] xl:w-[400px] h-[40%] lg:h-full border-b lg:border-b-0 lg:border-r border-neutral-800 opacity-100'
       }`}>
-        <div className="p-6 border-b border-neutral-800 sticky top-0 bg-neutral-900/95 backdrop-blur-md z-10">
-          <div className="flex items-center gap-3 mb-1">
-            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-lg shadow-white/5">
-              <Armchair size={22} className="text-black" strokeWidth={2.5} />
-            </div>
-            <div className="flex flex-col justify-center h-10">
-              <h1 className="text-lg font-bold text-white leading-none mb-1">Interior</h1>
-              <span className="text-[10px] font-bold tracking-[0.2em] text-neutral-500 uppercase leading-none">Design Studio</span>
-            </div>
-          </div>
-          {/* Mode toggle */}
-          <div className="flex items-center gap-1 mt-3 bg-neutral-950 p-1 rounded-xl border border-neutral-800">
-            <button
-              onClick={() => setSidebarMode('manual')}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${sidebarMode === 'manual' ? 'bg-white text-black shadow-sm' : 'text-neutral-400 hover:text-white'}`}
-            >
-              <SlidersHorizontal size={12} />
-              手動設定
-            </button>
-            <button
-              onClick={() => setSidebarMode('ai')}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${sidebarMode === 'ai' ? 'bg-white text-black shadow-sm' : 'text-neutral-400 hover:text-white'}`}
-            >
+	        <div className="p-6 border-b border-neutral-800 sticky top-0 bg-neutral-900/95 backdrop-blur-md z-10">
+	          <div className="flex items-center gap-3 mb-1">
+	            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-lg shadow-white/5">
+	              <Armchair size={22} className="text-black" strokeWidth={2.5} />
+	            </div>
+	            <div className="flex flex-col justify-center h-10">
+	              <h1 className="text-lg font-bold text-white leading-none mb-1">AI 裝修小幫手</h1>
+	              <span className="text-[10px] font-bold tracking-[0.08em] text-neutral-500 uppercase leading-none">回答問題，上傳照片，就能開始規劃</span>
+	            </div>
+	          </div>
+	          {/* Mode toggle */}
+	          <div className="flex items-center gap-1 mt-3 bg-neutral-950 p-1 rounded-xl border border-neutral-800">
+	            <button
+	              onClick={() => setSidebarMode('manual')}
+	              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${sidebarMode === 'manual' ? 'bg-white text-black shadow-sm' : 'text-neutral-400 hover:text-white'}`}
+	            >
+	              <SlidersHorizontal size={12} />
+	              直接設定
+	            </button>
+	            <button
+	              onClick={() => setSidebarMode('ai')}
+	              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${sidebarMode === 'ai' ? 'bg-white text-black shadow-sm' : 'text-neutral-400 hover:text-white'}`}
+	            >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="8" r="3"/>
                 <path d="M6 20v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
-                <path d="M19 3l1.5 1.5L19 6l-1.5-1.5Z" strokeWidth="2"/>
-              </svg>
-              AI 設計師
-            </button>
-          </div>
-        </div>
+	                <path d="M19 3l1.5 1.5L19 6l-1.5-1.5Z" strokeWidth="2"/>
+	              </svg>
+	              AI 引導
+	            </button>
+	          </div>
+	        </div>
 
         {/* AI Designer mode — always mounted (CSS hidden when inactive) to preserve chat state */}
         <div className={`flex-1 min-h-0 p-4 flex flex-col overflow-hidden ${sidebarMode === 'ai' ? '' : 'hidden'}`}>
@@ -599,15 +816,14 @@ const App: React.FC = () => {
               isActive={sidebarMode === 'ai'}
               floorPlan={config.floorPlan}
               realScenes={config.realScenes}
-              onFloorPlanChange={(f) => setConfig(prev => ({ ...prev, floorPlan: f }))}
-              onRealScenesChange={(files) => setConfig(prev => ({ ...prev, realScenes: files }))}
               context={{
                 style: config.style,
                 roomType: config.roomType,
                 hasFloorPlan: !!config.floorPlan,
                 hasRealScene: config.realScenes.length > 0,
               }}
-              onGenerate={async (aiPrompt) => {
+              onProjectBriefChange={setCurrentProjectBrief}
+              onGenerate={async (aiPrompt, projectBrief, aiSummary) => {
                 if (generatingRef.current || isGenerating) return;
 
                 // Generate using images from config + AI-collected prompt
@@ -619,19 +835,26 @@ const App: React.FC = () => {
                 generatingRef.current = true;
                 setIsGenerating(true);
                 setError(null);
-                setHistory([]);
-                setHistoryIndex(-1);
                 setEditPrompt('');
                 setIsComparing(false);
                 setAppliedRefinements([]);
                 try {
-                  const { generateDesign } = await import('./services/geminiService');
+                  if (projectBrief) setCurrentProjectBrief(projectBrief);
+                  const promptForGeneration = aiPrompt || config.prompt;
                   const resultImage = await generateDesign({
                     ...config,
-                    prompt: aiPrompt || config.prompt,
+                    prompt: promptForGeneration,
                   });
-                  setHistory([resultImage]);
-                  setHistoryIndex(0);
+                  replaceDesignHistory(resultImage, {
+                    source: 'ai_generate',
+                    title: 'AI 引導生成',
+                    prompt: promptForGeneration,
+                    style: config.style,
+                    roomType: config.roomType,
+                    changeReason: '依 AI 引導整理出的空間需求與渲染指令產生版本。',
+                    aiSummary,
+                    projectBrief: projectBrief ?? currentProjectBrief,
+                  });
                 } catch (err: any) {
                   handleError(err);
                 } finally {
@@ -643,18 +866,83 @@ const App: React.FC = () => {
             />
           </div>
 
-        {/* Manual mode */}
-        <div className={`p-6 space-y-8 pb-8 flex-1 ${sidebarMode === 'manual' ? '' : 'hidden'}`}>
+	        {/* Manual mode */}
+	        <div className={`p-6 space-y-6 pb-8 flex-1 ${sidebarMode === 'manual' ? '' : 'hidden'}`}>
+
+          {/* Homeowner-friendly project status */}
+          <div className="space-y-3">
+            <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-bold text-white">先完成這 3 件事</h2>
+                  <p className="text-[11px] text-neutral-500 mt-1 leading-relaxed">
+                    不用自己寫 prompt，AI 會把照片和回答整理成設計方案。
+                  </p>
+                </div>
+                <span className="text-[10px] font-bold text-neutral-300 bg-neutral-800 border border-neutral-700 rounded-full px-2 py-0.5">
+                  {readyCount}/3
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                {setupChecklist.map(item => (
+                  <div key={item.label} className="flex items-center gap-2 text-[11px]">
+                    <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold ${
+                      item.done ? 'bg-emerald-500 text-black' : 'bg-neutral-800 text-neutral-600 border border-neutral-700'
+                    }`}>
+                      {item.done ? '✓' : ''}
+                    </span>
+                    <span className={item.done ? 'text-neutral-200' : 'text-neutral-500'}>{item.label}</span>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => setSidebarMode('ai')}
+                className="w-full py-2.5 bg-white hover:bg-neutral-100 text-black text-xs font-bold rounded-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+              >
+                <Sparkles size={13} />
+                讓 AI 問我幾個問題
+              </button>
+            </div>
+
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-xs font-bold text-neutral-300">目前需求摘要</h3>
+                {currentProjectBrief?.summary && (
+                  <span className="text-[9px] text-emerald-400 bg-emerald-950/40 border border-emerald-900/50 rounded-full px-2 py-0.5">
+                    已整理
+                  </span>
+                )}
+              </div>
+              {currentProjectBrief?.summary ? (
+                <>
+                  <p className="text-[11px] text-neutral-300 leading-relaxed">{currentProjectBrief.summary}</p>
+                  {briefFacts.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {briefFacts.slice(0, 5).map(fact => (
+                        <span key={fact} className="text-[9px] text-neutral-400 bg-neutral-800 border border-neutral-700 rounded-full px-2 py-0.5">
+                          {fact}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-[11px] text-neutral-500 leading-relaxed">
+                  還沒有整理需求。建議先使用 AI 引導，系統會自動整理家庭成員、預算、風格和痛點。
+                </p>
+              )}
+            </div>
+          </div>
 
           {/* Section 0: Import Existing */}
           <div className="space-y-4">
             <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-500 flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
-              快速工具 (Quick Tools)
+              已有圖片可直接開始
             </h2>
             <ImageUpload 
               label="匯入設計圖" 
-              description="上傳現有渲染圖以直接進行編輯"
+              description="有舊圖或參考圖時使用"
               file={null} // Keep null so it acts as a permanent upload button
               onFileChange={handleImportDesign}
             />
@@ -662,24 +950,25 @@ const App: React.FC = () => {
 
           <div className="h-px bg-neutral-800" />
 
-          {/* Section 1: Inputs */}
-          <div className="space-y-4">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-500 flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
-              參考圖片 (Reference Images)
-            </h2>
-            <ImageUpload 
-              label="平面配置圖" 
-              description="2D 佈局圖或藍圖 (Floor Plan)"
-              file={config.floorPlan} 
-              onFileChange={(f) => setConfig(prev => ({ ...prev, floorPlan: f }))} 
-            />
-            <ImageUpload 
-              label="實景照片 (選填)" 
-              description="當前空間照片 (可多張)"
+	          {/* Section 1: Inputs */}
+	          <div className="space-y-4">
+	            <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-500 flex items-center gap-2">
+	              <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
+	              1. 上傳現況
+	            </h2>
+	            <ImageUpload 
+	              label="平面圖或格局圖" 
+	              description="有尺寸最好，沒有也可以先上傳"
+	              file={config.floorPlan} 
+	              onFileChange={(f) => setConfig(prev => ({ ...prev, floorPlan: f }))} 
+	            />
+	            <ImageUpload
+	              label="現場照片"
+	              description="建議拍門口、窗邊、主要牆面，最多 3 張"
               multiple={true}
-              files={config.realScenes} 
-              onFilesChange={(files) => setConfig(prev => ({ ...prev, realScenes: files }))} 
+              maxFiles={3}
+              files={config.realScenes}
+              onFilesChange={(files) => setConfig(prev => ({ ...prev, realScenes: files }))}
             />
             
             {(config.floorPlan || config.realScenes.length > 0) && (
@@ -689,24 +978,24 @@ const App: React.FC = () => {
                 isLoading={isAnalyzing} 
                 className="w-full text-xs py-2 h-9"
                 icon={<ScanEye size={14} />}
-              >
-                {isAnalyzing ? "正在自動分析空間..." : "自動分析空間語境"}
-              </Button>
-            )}
-          </div>
+	              >
+	                {isAnalyzing ? "AI 正在讀取空間..." : "讓 AI 看看空間條件"}
+	              </Button>
+	            )}
+	          </div>
 
           <div className="h-px bg-neutral-800" />
 
-          {/* Section 2: Config */}
-          <div className="space-y-5">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-500 flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-neutral-400"></span>
-              3D 空間與風格設定
-            </h2>
+	          {/* Section 2: Config */}
+	          <div className="space-y-5">
+	            <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-500 flex items-center gap-2">
+	              <span className="w-1.5 h-1.5 rounded-full bg-neutral-400"></span>
+	              2. 選擇想看的方案方向
+	            </h2>
             
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-neutral-400">目標空間類型</label>
+	                <label className="text-xs font-medium text-neutral-400">想先看哪個空間</label>
                 <select 
                   className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-white/20 focus:border-white/50 outline-none transition-all"
                   value={config.roomType}
@@ -717,7 +1006,7 @@ const App: React.FC = () => {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-neutral-400">期望設計風格</label>
+	                <label className="text-xs font-medium text-neutral-400">喜歡的風格</label>
                 <select 
                   className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-white/20 focus:border-white/50 outline-none transition-all"
                   value={config.style}
@@ -730,24 +1019,24 @@ const App: React.FC = () => {
 
 
 
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <label className="text-xs font-medium text-neutral-400">額外附加需求指令 (選填)</label>
-                {isAnalyzing
-                  ? <span className="text-xs text-indigo-400 animate-pulse">正在讀取圖像細節...</span>
-                  : <button
-                      onClick={() => setShowAIChat(true)}
-                      className="flex items-center gap-1 text-[10px] font-bold text-indigo-400 hover:text-indigo-300 bg-indigo-950/60 hover:bg-indigo-900/60 border border-indigo-800/50 hover:border-indigo-700 px-2 py-0.5 rounded-full transition-all"
-                    >
-                      <Sparkles size={10} />
-                      AI 設計訪談
-                    </button>
-                }
-              </div>
-              <textarea
-                className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-white/20 focus:border-white/50 outline-none min-h-[120px] resize-y placeholder:text-neutral-600 transition-all"
-                placeholder="描述特定的色彩、家具偏好、採光或藝術氛圍...（可使用上方自動分析進行填寫）"
-                value={config.prompt}
+	            <div className="space-y-2">
+	              <div className="flex justify-between items-center">
+	                <label className="text-xs font-medium text-neutral-400">AI 已整理的設計需求</label>
+	                {isAnalyzing
+	                  ? <span className="text-xs text-indigo-400 animate-pulse">正在讀取圖像細節...</span>
+	                  : <button
+	                      onClick={() => setSidebarMode('ai')}
+	                      className="flex items-center gap-1 text-[10px] font-bold text-indigo-400 hover:text-indigo-300 bg-indigo-950/60 hover:bg-indigo-900/60 border border-indigo-800/50 hover:border-indigo-700 px-2 py-0.5 rounded-full transition-all"
+	                    >
+	                      <Sparkles size={10} />
+	                      前往 AI 引導
+	                    </button>
+	                }
+	              </div>
+	              <textarea
+	                className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-white/20 focus:border-white/50 outline-none min-h-[120px] resize-y placeholder:text-neutral-600 transition-all"
+	                placeholder="可以留空，或到「AI 引導」讓 AI 問幾個問題後自動整理。也可以補充：想要明亮、收納多、不要深色、預算有限..."
+	                value={config.prompt}
                 onChange={(e) => setConfig(prev => ({ ...prev, prompt: e.target.value }))}
               />
               <div className="flex flex-wrap gap-2 mt-2">
@@ -764,11 +1053,80 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          {/* Action Section - Inline & Focused (No longer a full width footer) */}
-          <div className="pt-6 border-t border-neutral-800/80 flex flex-col items-center justify-center">
-            {error && (
-              <div className="w-full mb-4 p-3 bg-red-950/40 border border-red-900/50 rounded-lg text-xs text-red-100">
-                {error}
+	          {/* Optional room dimensions */}
+	          <div className="space-y-1.5">
+	            <label className="text-xs font-medium text-neutral-400">補充尺寸 <span className="text-neutral-600 font-normal">(選填・公尺)</span></label>
+            <div className="grid grid-cols-3 gap-2">
+              {(['length', 'width', 'height'] as const).map((dim, i) => (
+                <div key={dim} className="space-y-0.5">
+                  <span className="text-[9px] text-neutral-600">{['長', '寬', '天花高'][i]}</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    placeholder={['5', '4', '2.8'][i]}
+                    value={roomDimensions[dim]}
+                    onChange={e => setRoomDimensions(prev => ({ ...prev, [dim]: e.target.value }))}
+                    className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-2 py-1.5 text-xs text-white placeholder:text-neutral-600 focus:ring-1 focus:ring-white/20 outline-none"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+	          {/* Lighting time-of-day selector */}
+	          <div className="space-y-2">
+	            <label className="text-xs font-medium text-neutral-400">希望呈現的光線</label>
+            <div className="flex gap-1.5">
+              {LIGHTING_OPTIONS.map(o => (
+                <button
+                  key={o.key}
+                  onClick={() => setLightingTime(o.key)}
+                  className={`flex-1 py-1.5 rounded-lg text-[11px] font-semibold border transition-all ${
+                    lightingTime === o.key
+                      ? 'bg-white text-black border-white'
+                      : 'bg-neutral-800 text-neutral-400 border-neutral-700 hover:text-white hover:border-neutral-500'
+                  }`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+	          {/* Action Section - Inline & Focused (No longer a full width footer) */}
+	          <div className="pt-6 border-t border-neutral-800/80 flex flex-col items-center justify-center">
+            <div className="w-full mb-4 bg-neutral-950/70 border border-neutral-800 rounded-xl p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-neutral-300">3. 產生第一版方案</span>
+                <span className={`text-[9px] font-bold rounded-full px-2 py-0.5 border ${
+                  hasSpaceReference
+                    ? 'text-emerald-400 bg-emerald-950/30 border-emerald-900/50'
+                    : 'text-amber-400 bg-amber-950/30 border-amber-900/50'
+                }`}>
+                  {hasSpaceReference ? '可以生成' : '還缺現況照片'}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {setupChecklist.map(item => (
+                  <div key={item.label} className={`rounded-lg border px-2 py-1.5 ${
+                    item.done ? 'border-emerald-900/50 bg-emerald-950/20' : 'border-neutral-800 bg-neutral-900'
+                  }`}>
+                    <div className="flex items-center gap-1">
+                      <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] ${
+                        item.done ? 'bg-emerald-500 text-black' : 'bg-neutral-800 text-neutral-600'
+                      }`}>
+                        {item.done ? '✓' : ''}
+                      </span>
+                      <span className="text-[9px] text-neutral-400 truncate">{item.label}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+	            {error && (
+	              <div className="w-full mb-4 p-3 bg-red-950/40 border border-red-900/50 rounded-lg text-xs text-red-100">
+	                {error}
               </div>
             )}
             <Button 
@@ -776,13 +1134,13 @@ const App: React.FC = () => {
               isLoading={isGenerating} 
               className="w-[85%] mx-auto py-3.5 bg-gradient-to-r from-neutral-200 to-white hover:from-white hover:to-neutral-100 !text-black shadow-lg shadow-white/5 font-semibold text-sm rounded-full tracking-wide flex items-center justify-center gap-2 hover:scale-[1.03] active:scale-[0.97] transition-all duration-300 border border-white/20 select-none"
               icon={<Wand2 size={16} className="text-indigo-600 animate-pulse" />}
-            >
-              {isGenerating ? '生成渲染中...' : '渲染設計方案'}
-            </Button>
-            <p className="text-[10px] text-neutral-500 mt-2 text-center">
-              生成高解析擬真 3D 空間圖
-            </p>
-          </div>
+	            >
+	              {isGenerating ? '生成渲染中...' : '產生我的設計方案'}
+	            </Button>
+	            <p className="text-[10px] text-neutral-500 mt-2 text-center">
+	              生成後會自動附上版本紀錄與好不好住檢查
+	            </p>
+	          </div>
         </div>
       </aside>
 
@@ -799,7 +1157,7 @@ const App: React.FC = () => {
         {/* Header/Toolbar */}
         <div className="h-16 flex-shrink-0 border-b border-neutral-850 flex items-center justify-between px-6 bg-neutral-900/60 backdrop-blur-md z-15 relative gap-4">
             <div className="flex items-center gap-3 min-w-0">
-                 <span className="text-sm font-semibold tracking-wider text-neutral-300 hidden md:inline flex-shrink-0">設計工作區</span>
+                 <span className="text-sm font-semibold tracking-wider text-neutral-300 hidden md:inline flex-shrink-0">方案預覽</span>
                  
                  {/* Collapse/Expand Sidebar Trigger Button */}
                  <button
@@ -808,7 +1166,7 @@ const App: React.FC = () => {
                    title={isSidebarCollapsed ? "展開左側面板" : "收合左側面板"}
                  >
                    <ChevronRight size={13} className={`transform transition-transform duration-300 ${isSidebarCollapsed ? '' : 'rotate-180'}`} />
-                   <span>{isSidebarCollapsed ? "展開面板" : "收合面板"}</span>
+                   <span>{isSidebarCollapsed ? "顯示左側資料" : "收合左側資料"}</span>
                  </button>
                  
                  <div className="h-4 w-[1px] bg-neutral-800 hidden md:block"></div>
@@ -820,14 +1178,14 @@ const App: React.FC = () => {
                      className={`px-2.5 py-1 text-[11px] rounded-full font-bold select-none flex items-center gap-1.5 transition-all duration-300 ${viewMode === '2d' ? 'bg-white text-black shadow-md' : 'text-neutral-400 hover:text-white'}`}
                    >
                      <Eye size={12} />
-                     2D AI 寫實
+                     看風格圖
                    </button>
                    <button 
                      onClick={() => setViewMode('3d')}
                      className={`px-2.5 py-1 text-[11px] rounded-full font-bold select-none flex items-center gap-1.5 transition-all duration-300 ${viewMode === '3d' ? 'bg-white text-black shadow-md' : 'text-neutral-400 hover:text-white'}`}
                    >
                      <Box size={12} />
-                     3D 互動沙盒
+                     檢查配置
                    </button>
                  </div>
 
@@ -858,10 +1216,10 @@ const App: React.FC = () => {
                     API Key
                 </Button>
                 {displayImage && (
-                    <Button 
-                        variant="ghost" 
-                        onClick={() => { setHistory([]); setHistoryIndex(-1); }}
-                        title="清除本次結果"
+	                    <Button 
+	                        variant="ghost" 
+	                        onClick={() => { setHistory([]); setVersionRecords([]); setHistoryIndex(-1); }}
+	                        title="清除本次結果"
                         className="!py-1 !px-2.5"
                     >
                         <RefreshCw size={14} />
@@ -870,13 +1228,13 @@ const App: React.FC = () => {
             </div>
         </div>
 
-        {/* DIY 自助式設計全生命週期引導 - 全新整合工作流 (DIY Integrated Life-cycle Workflow & Designer's Guide) */}
-        <div className="bg-neutral-900/80 border-b border-neutral-850 p-2.5 px-4 md:px-6 flex items-center justify-between gap-4 select-none flex-shrink-0 z-35 shadow-sm relative backdrop-blur-sm">
+          {/* Homeowner-friendly planning steps */}
+          <div className="bg-neutral-900/80 border-b border-neutral-850 p-2.5 px-4 md:px-6 flex items-center justify-between gap-4 select-none flex-shrink-0 z-35 shadow-sm relative backdrop-blur-sm">
           <div className="flex items-center gap-3 flex-shrink-0 relative">
             <div className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
               <span className="text-[10px] font-bold tracking-[0.12em] text-neutral-400 uppercase flex items-center gap-1">
-                DIY 全流程規劃
+                裝修規劃進度
               </span>
             </div>
 
@@ -887,43 +1245,43 @@ const App: React.FC = () => {
                 className="flex items-center gap-1 bg-indigo-950/70 hover:bg-indigo-900 border border-indigo-800/50 hover:border-indigo-700/80 px-2.5 py-1 rounded-full text-[10px] text-indigo-300 font-bold cursor-pointer transition-all leading-none shadow-md active:scale-95 select-none"
               >
                 <Lightbulb size={10} className="text-indigo-400" />
-                <span>設計師觀點</span>
+                <span>下一步提醒</span>
               </button>
             </div>
           </div>
 
-          {/* Connected Steps detailing Hard (硬裝) vs Soft (軟裝) Phases */}
+          {/* Connected homeowner steps */}
           <div className="flex flex-1 items-center justify-end md:justify-center gap-2 xl:gap-4 overflow-x-auto scrollbar-none py-1">
-            {[
+            {([
               {
-                step: 1,
-                title: "實景上傳",
-                subtitle: "格局分析 · Upload",
+                step: 1 as const,
+                title: "上傳現況",
+                subtitle: "平面圖與照片",
                 active: activeWorkflowStep === 1,
                 done: !!config.floorPlan || config.realScenes.length > 0
               },
               {
-                step: 2,
-                title: "AI 設計訪談",
-                subtitle: "需求確認 · Consult",
+                step: 2 as const,
+                title: "整理需求",
+                subtitle: "生活需求與預算",
                 active: activeWorkflowStep === 2,
                 done: activeWorkflowStep > 2 && (!!config.floorPlan || config.realScenes.length > 0)
               },
               {
-                step: 3,
-                title: "2D 視覺渲染",
-                subtitle: "硬裝設計 · Render",
+                step: 3 as const,
+                title: "看設計圖",
+                subtitle: "風格與氛圍",
                 active: activeWorkflowStep === 3,
                 done: !!displayImage
               },
               {
-                step: 4,
-                title: "3D 軟裝配置",
-                subtitle: "軟裝設計 · Placement",
+                step: 4 as const,
+                title: "檢查配置",
+                subtitle: "家具大小與走道",
                 active: activeWorkflowStep === 4,
                 done: viewMode === '3d'
               }
-            ].map((s, i, arr) => (
+            ]).map((s, i, arr) => (
               <React.Fragment key={s.step}>
                 <button
                   onClick={() => {
@@ -966,7 +1324,14 @@ const App: React.FC = () => {
         <div className="flex-1 flex flex-col items-center justify-center p-3 md:p-5 overflow-hidden relative min-h-0 min-w-0">
           {viewMode === '3d' ? (
              <div className="w-full h-full flex flex-col items-center justify-center animate-in fade-in duration-500 min-h-0">
-                 <ThreeRoomViewer 
+                <ThreeViewerErrorBoundary>
+                <Suspense fallback={
+                  <div className="flex items-center justify-center gap-3 text-neutral-500 text-sm">
+                    <div className="w-4 h-4 border-2 border-neutral-600 border-t-white rounded-full animate-spin" />
+                    載入 3D 場景中...
+                  </div>
+                }>
+                 <ThreeRoomViewer
                     style={config.style} onRoomTypeChange={(newRoomType) => setConfig(prev => ({ ...prev, roomType: newRoomType }))} isSidebarCollapsed={isSidebarCollapsed}
                     roomType={config.roomType}
                     appliedRefinements={appliedRefinements}
@@ -981,6 +1346,8 @@ const App: React.FC = () => {
                        setEditPrompt(prompt);
                     }}
                  />
+                </Suspense>
+                </ThreeViewerErrorBoundary>
              </div>
           ) : displayImage ? (
              <div className="relative w-full h-full flex flex-col items-center justify-start animate-in fade-in zoom-in duration-500 min-h-0">
@@ -998,7 +1365,7 @@ const App: React.FC = () => {
                             value={editPrompt}
                             onChange={(e) => setEditPrompt(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleMagicEdit()}
-                            placeholder="描述要修改的細節，例如：將沙發換成棕色皮革..."
+                            placeholder="想調整哪裡？例如：沙發改小一點、牆面改暖白、增加收納櫃..."
                             className="flex-1 bg-transparent border-none text-white placeholder:text-neutral-500 focus:outline-none focus:ring-0 text-xs sm:text-sm py-1.5 min-w-0"
                             disabled={isEditing}
                         />
@@ -1034,7 +1401,7 @@ const App: React.FC = () => {
 
                      {/* Refine preset chips */}
                      <div className="flex items-center gap-1.5 mt-1 px-1 max-w-full overflow-x-auto select-none pb-1 flex-shrink-0 scrollbar-none whitespace-nowrap scroll-smooth">
-                         {REFINE_PRESETS.map((p, i) => (
+                         {(REFINE_PRESETS_BY_ROOM[config.roomType] ?? REFINE_PRESETS_BY_ROOM[RoomType.LIVING_ROOM]).map((p, i) => (
                              <button
                                  key={i}
                                  onClick={() => setEditPrompt(p.prompt)}
@@ -1048,8 +1415,8 @@ const App: React.FC = () => {
                 </div>
 
                 {/* Image Container with precise responsive calculation limit so that it never leaks out of the viewport bounds */}
-                <div className="relative flex-1 min-h-0 w-full max-w-5xl flex items-center justify-center p-1 md:p-1.5">
-                    <div className="relative rounded-xl overflow-hidden shadow-2xl shadow-black/60 border border-neutral-800/90 max-h-full max-w-full flex items-center justify-center bg-neutral-900 group">
+	                <div className="relative flex-1 min-h-0 w-full max-w-5xl flex items-center justify-center p-1 md:p-1.5">
+	                    <div className="relative rounded-xl overflow-hidden shadow-2xl shadow-black/60 border border-neutral-800/90 max-h-full max-w-full flex items-center justify-center bg-neutral-900 group">
                         <img 
                             src={displayImage} 
                             alt="Generated Interior Design" 
@@ -1058,7 +1425,7 @@ const App: React.FC = () => {
                          {/* Comparison Indicator Overlay */}
                          {isComparing && (
                            <div className="absolute top-4 left-4 bg-indigo-600/90 text-white text-xs px-3 py-1.5 rounded-full backdrop-blur-md shadow-lg font-medium animate-pulse pointer-events-none">
-                              Showing Previous Version
+                              正在看上一版
                            </div>
                          )}
 
@@ -1074,7 +1441,7 @@ const App: React.FC = () => {
                                             <Sparkles className="animate-pulse text-indigo-400" size={32} />
                                         </div>
                                     </div>
-                                    <p className="text-neutral-200 text-xs sm:text-sm font-medium tracking-wide">正在套用智慧細節微調...</p>
+	                                    <p className="text-neutral-200 text-xs sm:text-sm font-medium tracking-wide">正在幫你修改這張圖...</p>
                                 </div>
                             </div>
                         )}
@@ -1096,10 +1463,111 @@ const App: React.FC = () => {
                                 <Download size={18} />
                             </button>
                         </div>
-                    </div>
-                </div>
+	                    </div>
+	                </div>
 
-             </div>
+                {currentVersion && (
+                  <div className="w-full max-w-5xl px-1 md:px-1.5 pb-1 flex-shrink-0">
+                    <div className="bg-neutral-900/85 border border-neutral-800 rounded-xl px-3 py-2 min-w-0">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center bg-neutral-950 p-1 rounded-lg border border-neutral-800">
+                          {[
+                            { key: 'version' as const, label: '版本紀錄', icon: History },
+                            { key: 'check' as const, label: '好住檢查', icon: ClipboardCheck },
+                          ].map(tab => {
+                            const Icon = tab.icon;
+                            return (
+                              <button
+                                key={tab.key}
+                                onClick={() => setResultInfoTab(tab.key)}
+                                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold transition-all ${
+                                  resultInfoTab === tab.key
+                                    ? 'bg-white text-black'
+                                    : 'text-neutral-500 hover:text-neutral-200'
+                                }`}
+                              >
+                                <Icon size={11} />
+                                {tab.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <span className="text-[9px] text-neutral-500 flex-shrink-0">
+                          {sourceLabels[currentVersion.source]} · V{displayedVersionIndex + 1}
+                        </span>
+                      </div>
+
+                      {resultInfoTab === 'version' && (
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <History size={12} className="text-indigo-400 flex-shrink-0" />
+                            <span className="text-[10px] font-bold text-neutral-200 truncate">這版怎麼來的</span>
+                          </div>
+                          <p className="text-[10px] text-neutral-400 leading-relaxed line-clamp-2">{currentVersion.changeReason}</p>
+                          {(currentVersion.aiSummary || currentVersion.projectBrief?.summary) && (
+                            <p className="mt-1 text-[9px] text-neutral-600 truncate">
+                              摘要：{currentVersion.aiSummary || currentVersion.projectBrief?.summary}
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {resultInfoTab === 'check' && (
+                        <div className="min-w-0">
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <div className="flex items-center gap-1.5">
+                              <ClipboardCheck size={12} className="text-emerald-400" />
+                              <span className="text-[10px] font-bold text-neutral-200">AI 幫你檢查好不好住</span>
+                            </div>
+                            <span className="text-[9px] text-neutral-600">
+                              {currentVersion.checklistStatus === 'checking'
+                                ? '檢核中'
+                                : currentVersion.checklistStatus === 'done'
+                                  ? '已完成'
+                                  : currentVersion.checklistStatus === 'error'
+                                    ? '需人工複核'
+                                    : '等待檢核'}
+                            </span>
+                          </div>
+
+                          {currentVersion.checklistStatus === 'checking' && (
+                            <div className="flex items-center gap-2 text-[10px] text-neutral-500">
+                              <CircleDashed size={12} className="animate-spin text-neutral-500" />
+                              正在檢查動線、收納、比例、採光與濕區風險...
+                            </div>
+                          )}
+
+                          {currentVersion.checklistStatus !== 'checking' && currentVersion.checklist && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-1.5">
+                              {currentVersion.checklist.map(item => {
+                                const tone =
+                                  item.status === 'pass'
+                                    ? 'border-emerald-800/50 bg-emerald-950/20 text-emerald-300'
+                                    : item.status === 'fail'
+                                      ? 'border-red-800/50 bg-red-950/20 text-red-300'
+                                      : item.status === 'warning'
+                                        ? 'border-amber-800/50 bg-amber-950/20 text-amber-300'
+                                        : 'border-neutral-800 bg-neutral-950/40 text-neutral-400';
+                                const Icon = item.status === 'pass' ? CheckCircle2 : item.status === 'unknown' ? CircleDashed : AlertTriangle;
+                                return (
+                                  <div key={item.key} className={`rounded-lg border px-2 py-1.5 min-w-0 ${tone}`}>
+                                    <div className="flex items-center gap-1 min-w-0 mb-0.5">
+                                      <Icon size={10} className="flex-shrink-0" />
+                                      <span className="text-[9px] font-bold truncate">{item.label}</span>
+                                    </div>
+                                    <p className="text-[9px] leading-snug text-neutral-400 line-clamp-2">{item.note}</p>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+	             </div>
           ) : (
             <div className="flex flex-col items-center justify-center text-neutral-600 max-w-md text-center">
                  {isGenerating ? (
@@ -1139,10 +1607,10 @@ const App: React.FC = () => {
                             </div>
                         </div>
                         <div className="px-4">
-                             <h3 className="text-xl font-bold text-white mb-3 bg-gradient-to-r from-white via-neutral-100 to-indigo-200 bg-clip-text text-transparent">正在為您建構空間夢想...</h3>
-                             <p className="text-xs text-neutral-400 leading-relaxed font-sans">
-                                 正在智慧化分析平面配置圖和實景照片細節，以生成高品質、超寫實的空間渲染與設計視覺效果。
-                             </p>
+	                             <h3 className="text-xl font-bold text-white mb-3 bg-gradient-to-r from-white via-neutral-100 to-indigo-200 bg-clip-text text-transparent">正在產生第一版設計圖...</h3>
+	                             <p className="text-xs text-neutral-400 leading-relaxed font-sans">
+	                                 AI 正在參考左側的現況照片、需求與風格，完成後會一起檢查動線、收納和家具比例。
+	                             </p>
                         </div>
                     </div>
                  ) : (
@@ -1150,20 +1618,10 @@ const App: React.FC = () => {
                         <div className="w-20 h-20 rounded-2xl bg-neutral-900 border border-neutral-800 flex items-center justify-center mb-6 shadow-xl rotate-3">
                             <Armchair size={36} className="text-neutral-500" strokeWidth={1.5} />
                         </div>
-                        <h3 className="text-xl font-medium text-neutral-300 mb-2">準備好開始您的專屬設計</h3>
-                        <p className="text-sm leading-relaxed mb-6 text-neutral-400">
-                            請在左側側邊欄上傳您的房屋格局圖和實景照片，即可開始生成專業的高品質 AI 空間寫實透視與渲染視覺效果。
-                        </p>
-                        <div className="flex gap-4 text-xs text-neutral-500">
-                            <div className="flex items-center gap-1.5">
-                                <span className="w-2 h-2 rounded-full bg-neutral-700"></span>
-                                Gemini 3 Pro
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                                <span className="w-2 h-2 rounded-full bg-neutral-700"></span>
-                                Gemini 3.5 Flash
-                            </div>
-                        </div>
+	                        <h3 className="text-xl font-medium text-neutral-300 mb-2">先完成左側 3 件事</h3>
+	                        <p className="text-sm leading-relaxed mb-6 text-neutral-400">
+	                            上傳現況、整理需求、選擇想看的空間後，就能產生第一版設計圖。
+	                        </p>
                     </>
                  )}
             </div>

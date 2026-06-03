@@ -1,23 +1,23 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, Wand2, RefreshCw, CheckCircle2, Loader2, LayoutDashboard } from 'lucide-react';
+import { Send, Wand2, RefreshCw, CheckCircle2, Loader2, LayoutDashboard, AlertCircle, ImageIcon } from 'lucide-react';
 import {
   chatWithDesigner,
+  summarizeHistory,
   analyzeFloorPlanRooms,
   ChatMessage,
   DesignContext,
   RoomInfo,
 } from '../services/geminiService';
-import ImageUpload from './ImageUpload';
+import { ProjectBrief } from '../types';
 import Button from './Button';
 
 interface Props {
   isActive: boolean;
   floorPlan: File | null;
   realScenes: File[];
-  onFloorPlanChange: (f: File | null) => void;
-  onRealScenesChange: (files: File[]) => void;
   context: DesignContext;
-  onGenerate: (renderPrompt: string) => void;
+  onGenerate: (renderPrompt: string, projectBrief?: ProjectBrief | null, aiSummary?: string) => void;
+  onProjectBriefChange?: (brief: ProjectBrief | null) => void;
   isGenerating: boolean;
 }
 
@@ -26,12 +26,39 @@ const extractRenderPrompt = (text: string): string | null => {
   const match = text.match(/\[渲染指令:([\s\S]+?)\][\s]*$/);
   return match ? match[1].trim() : null;
 };
+
+const extractProjectBrief = (text: string): ProjectBrief | null => {
+  const match = text.match(/\[專案資料:\s*({[\s\S]*?})\s*\]/);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[1]);
+    return {
+      household: String(parsed.household || ''),
+      area: String(parsed.area || ''),
+      budget: String(parsed.budget || ''),
+      painPoints: String(parsed.painPoints || ''),
+      stylePreference: String(parsed.stylePreference || ''),
+      rejectedElements: String(parsed.rejectedElements || ''),
+      targetRoom: String(parsed.targetRoom || ''),
+      constructionLimits: String(parsed.constructionLimits || ''),
+      storageNeeds: String(parsed.storageNeeds || ''),
+      lifestyleNotes: String(parsed.lifestyleNotes || ''),
+      summary: String(parsed.summary || ''),
+    };
+  } catch {
+    return null;
+  }
+};
+
 const stripRenderTag = (text: string) =>
-  text.replace(/\n?\[渲染指令:[\s\S]+?\][\s]*$/, '').trim();
+  text
+    .replace(/\n?\[專案資料:\s*{[\s\S]*?}\s*\]/g, '')
+    .replace(/\n?\[渲染指令:[\s\S]+?\][\s]*$/, '')
+    .trim();
 
 const INITIAL_MESSAGE: ChatMessage = {
   role: 'assistant',
-  content: '你好，我是你的 AI 室內設計師。先把平面圖或現場照片交給我，我會陪你一起梳理空間條件、生活需求與喜歡的風格，慢慢整理出適合這個家的設計方向。',
+  content: '你好，我是你的 AI 室內設計師。可以直接告訴我你的設計想法，或上傳平面配置圖讓我自動識別空間，再陪你一起梳理生活需求與風格方向。',
 };
 
 // AI designer avatar
@@ -50,10 +77,9 @@ const AIDesignerSidebar: React.FC<Props> = ({
   isActive,
   floorPlan,
   realScenes,
-  onFloorPlanChange,
-  onRealScenesChange,
   context,
   onGenerate,
+  onProjectBriefChange,
   isGenerating,
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([INITIAL_MESSAGE]);
@@ -69,6 +95,7 @@ const AIDesignerSidebar: React.FC<Props> = ({
 
   // Final render prompt (extracted from AI [渲染指令: ...] tag)
   const [renderPrompt, setRenderPrompt] = useState('');
+  const [projectBrief, setProjectBrief] = useState<ProjectBrief | null>(null);
 
   // AI mode context: strip style/roomType so AI discovers them through conversation
   const aiContext: DesignContext = {
@@ -77,6 +104,80 @@ const AIDesignerSidebar: React.FC<Props> = ({
     hasFloorPlan: context.hasFloorPlan,
     hasRealScene: context.hasRealScene,
   };
+
+  // ConversationSummaryBufferMemory: compress history after 10 rounds (20 messages)
+  const SUMMARY_THRESHOLD = 20;
+  const KEEP_RECENT = 6; // keep last 3 rounds verbatim
+  const [conversationSummary, setConversationSummary] = useState('');
+  const isSummarizingRef = useRef(false);
+
+  // Typewriter animation for the initial assistant message.
+  // Triggered when the AI tab becomes active for the first time — the component is
+  // always mounted (CSS hidden), so mount-time effects fire before the user sees the tab.
+  type TypingPhase = 'dots' | 'typing' | 'done';
+  const [typingPhase, setTypingPhase] = useState<TypingPhase>('done');
+  const [typedText, setTypedText] = useState(INITIAL_MESSAGE.content);
+  const hasPlayedRef = useRef(false);
+  const [animatedAssistantIndex, setAnimatedAssistantIndex] = useState<number | null>(null);
+  const [animatedAssistantText, setAnimatedAssistantText] = useState('');
+  const assistantTypingIntervalRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isActive || hasPlayedRef.current) return;
+    hasPlayedRef.current = true;
+
+    setTypingPhase('dots');
+    setTypedText('');
+
+    const dotTimer = setTimeout(() => {
+      setTypingPhase('typing');
+      const fullText = INITIAL_MESSAGE.content;
+      let i = 0;
+      const interval = setInterval(() => {
+        i++;
+        setTypedText(fullText.slice(0, i));
+        if (i >= fullText.length) {
+          clearInterval(interval);
+          setTypingPhase('done');
+        }
+      }, 18);
+      return () => clearInterval(interval);
+    }, 650);
+
+    return () => clearTimeout(dotTimer);
+  }, [isActive]);
+
+  const animateAssistantMessage = useCallback((messageIndex: number, text: string) => {
+    if (assistantTypingIntervalRef.current) {
+      window.clearInterval(assistantTypingIntervalRef.current);
+      assistantTypingIntervalRef.current = null;
+    }
+
+    setAnimatedAssistantIndex(messageIndex);
+    setAnimatedAssistantText('');
+
+    let i = 0;
+    assistantTypingIntervalRef.current = window.setInterval(() => {
+      i += 1;
+      setAnimatedAssistantText(text.slice(0, i));
+      if (i >= text.length) {
+        if (assistantTypingIntervalRef.current) {
+          window.clearInterval(assistantTypingIntervalRef.current);
+          assistantTypingIntervalRef.current = null;
+        }
+        setAnimatedAssistantIndex(null);
+        setAnimatedAssistantText('');
+      }
+    }, 12);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (assistantTypingIntervalRef.current) {
+        window.clearInterval(assistantTypingIntervalRef.current);
+      }
+    };
+  }, []);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -91,6 +192,28 @@ const AIDesignerSidebar: React.FC<Props> = ({
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 110)}px`;
   };
+
+  // Background compression: fold messages older than KEEP_RECENT into a running summary.
+  // Runs silently after each AI response — user never sees a loading state.
+  const compressHistory = useCallback(async (snapshot: ChatMessage[], currentSummary: string) => {
+    if (snapshot.length <= SUMMARY_THRESHOLD || isSummarizingRef.current) return;
+    isSummarizingRef.current = true;
+    const recentBuffer = snapshot.slice(-KEEP_RECENT);
+    const toCompress  = snapshot.slice(0, -KEEP_RECENT);
+    try {
+      const newSummary = await summarizeHistory(currentSummary, toCompress);
+      setConversationSummary(newSummary);
+      // Preserve recentBuffer + any messages that arrived during compression
+      setMessages(prev => {
+        const addedDuring = prev.slice(snapshot.length);
+        return [...recentBuffer, ...addedDuring];
+      });
+    } catch {
+      // Silent failure — full history remains, no disruption to UX
+    } finally {
+      isSummarizingRef.current = false;
+    }
+  }, []);
   // Auto-scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -167,19 +290,28 @@ const AIDesignerSidebar: React.FC<Props> = ({
         userMsg,
         undefined,
         aiContext,
-        roomList
+        roomList,
+        conversationSummary || undefined
       );
       const extracted = extractRenderPrompt(reply);
-      const displayed = extracted ? stripRenderTag(reply) : reply;
-      setMessages([...newHistory, { role: 'assistant', content: displayed }]);
+      const brief = extractProjectBrief(reply);
+      const displayed = stripRenderTag(reply);
+      const nextMessages = [...newHistory, { role: 'assistant' as const, content: displayed }];
+      setMessages(nextMessages);
+      animateAssistantMessage(nextMessages.length - 1, displayed);
       if (extracted) setRenderPrompt(extracted);
+      if (brief) {
+        setProjectBrief(brief);
+        onProjectBriefChange?.(brief);
+      }
+      compressHistory(nextMessages, conversationSummary);
     } catch (e: any) {
       setError(e.message);
     } finally {
       chatInFlightRef.current = false;
       setIsLoading(false);
     }
-  }, [messages, aiContext, roomList, isLoading]);
+  }, [messages, aiContext, roomList, isLoading, conversationSummary, compressHistory, animateAssistantMessage]);
 
   // Send user message
   const send = useCallback(async (text: string) => {
@@ -203,12 +335,21 @@ const AIDesignerSidebar: React.FC<Props> = ({
         text,
         undefined,
         aiContext,
-        roomList.length > 0 ? roomList : undefined
+        roomList.length > 0 ? roomList : undefined,
+        conversationSummary || undefined
       );
       const extracted = extractRenderPrompt(reply);
-      const displayed = extracted ? stripRenderTag(reply) : reply;
-      setMessages([...nextHistory, { role: 'assistant', content: displayed }]);
+      const brief = extractProjectBrief(reply);
+      const displayed = stripRenderTag(reply);
+      const nextMessages = [...nextHistory, { role: 'assistant' as const, content: displayed }];
+      setMessages(nextMessages);
+      animateAssistantMessage(nextMessages.length - 1, displayed);
       if (extracted) setRenderPrompt(extracted);
+      if (brief) {
+        setProjectBrief(brief);
+        onProjectBriefChange?.(brief);
+      }
+      compressHistory(nextMessages, conversationSummary);
     } catch (e: any) {
       setError(e.message || '回應失敗，請再試一次。');
     } finally {
@@ -216,37 +357,52 @@ const AIDesignerSidebar: React.FC<Props> = ({
       setIsLoading(false);
       inputRef.current?.focus();
     }
-  }, [messages, isLoading, aiContext, roomList]);
+  }, [messages, isLoading, aiContext, roomList, conversationSummary, compressHistory, animateAssistantMessage]);
 
   const clearAll = () => {
     setMessages([INITIAL_MESSAGE]);
     setRoomList([]);
     setSelectedRoom(null);
     setRenderPrompt('');
+    setProjectBrief(null);
+    onProjectBriefChange?.(null);
+    setAnimatedAssistantIndex(null);
+    setAnimatedAssistantText('');
+    setConversationSummary('');
     setError(null);
     prevFloorPlanName.current = '';
     prevRealScenesCount.current = 0;
+    isSummarizingRef.current = false;
   };
 
   return (
     <div className="flex flex-col h-full min-h-0 gap-0">
 
-      {/* Image upload strip */}
-      <div className="pb-3 border-b border-neutral-800/60 flex-shrink-0 space-y-2">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">
-          上傳圖片
-          {analyzingRooms && (
-            <span className="ml-2 text-indigo-400 font-normal flex-shrink-0 inline-flex items-center gap-1 normal-case">
-              <Loader2 size={9} className="animate-spin" /> 正在識別空間...
-            </span>
-          )}
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          <ImageUpload label="平面配置圖" description="AI 自動識別空間"
-            file={floorPlan} onFileChange={onFloorPlanChange} compact />
-          <ImageUpload label="實景照片" description="可多張"
-            multiple files={realScenes} onFilesChange={onRealScenesChange} compact />
-        </div>
+      {/* Image status bar — read-only, managed by manual settings */}
+      <div className="pb-3 border-b border-neutral-800/60 flex-shrink-0">
+        {floorPlan ? (
+          <div className="flex items-center gap-2 px-2.5 py-2 bg-neutral-800/60 rounded-lg border border-neutral-700/60">
+            <ImageIcon size={11} className="text-emerald-400 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-semibold text-emerald-400 truncate">{floorPlan.name}</p>
+              <p className="text-[9px] text-neutral-500">
+                平面配置圖已載入
+                {realScenes.length > 0 && `・${realScenes.length} 張實景照片`}
+                {analyzingRooms && (
+                  <span className="ml-1 text-indigo-400 inline-flex items-center gap-0.5">
+                    <Loader2 size={8} className="animate-spin" /> 識別中...
+                  </span>
+                )}
+              </p>
+            </div>
+            <CheckCircle2 size={12} className="text-emerald-500 flex-shrink-0" />
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 px-2.5 py-2 bg-neutral-900/60 rounded-lg border border-neutral-800 border-dashed">
+            <AlertCircle size={11} className="text-neutral-600 flex-shrink-0" />
+            <p className="text-[10px] text-neutral-600">請先在「直接設定」上傳平面圖或現場照片</p>
+          </div>
+        )}
       </div>
 
       {/* Room selection chips (shown after floor plan analysis) */}
@@ -307,18 +463,51 @@ const AIDesignerSidebar: React.FC<Props> = ({
             </div>
           )}
 
-          {messages.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} gap-1.5 w-full`}>
-              {msg.role === 'assistant' && <DesignerAvatar />}
-              <div className={`max-w-[78%] px-3 py-2 rounded-xl text-xs leading-relaxed break-words ${
-                msg.role === 'user'
-                  ? 'bg-neutral-700 text-white rounded-br-sm'
-                  : 'bg-neutral-800 text-neutral-100 rounded-bl-sm'
-              }`}>
-                {msg.content}
+          {messages.map((msg, i) => {
+            // Initial message — dots bubble → typewriter animation
+            if (i === 0 && msg.role === 'assistant') {
+              if (typingPhase === 'dots') {
+                return (
+                  <div key={i} className="flex justify-start gap-1.5 w-full">
+                    <DesignerAvatar />
+                    <div className="bg-neutral-800 px-3 py-2.5 rounded-xl rounded-bl-sm flex items-center gap-1">
+                      {[0, 1, 2].map(d => (
+                        <span key={d} className="w-1.5 h-1.5 bg-neutral-500 rounded-full animate-bounce"
+                          style={{ animationDelay: `${d * 0.15}s` }} />
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <div key={i} className="flex justify-start gap-1.5 w-full">
+                  <DesignerAvatar />
+                  <div className="max-w-[78%] px-3 py-2 rounded-xl rounded-bl-sm bg-neutral-800 text-neutral-100 text-xs leading-relaxed break-words">
+                    {typedText}
+                    {typingPhase === 'typing' && (
+                      <span className="inline-block w-0.5 h-[1em] bg-neutral-400 ml-0.5 align-middle animate-pulse" />
+                    )}
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} gap-1.5 w-full`}>
+                {msg.role === 'assistant' && <DesignerAvatar />}
+                <div className={`max-w-[78%] px-3 py-2 rounded-xl text-xs leading-relaxed break-words ${
+                  msg.role === 'user'
+                    ? 'bg-neutral-700 text-white rounded-br-sm'
+                    : 'bg-neutral-800 text-neutral-100 rounded-bl-sm'
+                }`}>
+                  {msg.role === 'assistant' && animatedAssistantIndex === i ? animatedAssistantText : msg.content}
+                  {msg.role === 'assistant' && animatedAssistantIndex === i && (
+                    <span className="inline-block w-0.5 h-[1em] bg-neutral-400 ml-0.5 align-middle animate-pulse" />
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {(isLoading || analyzingRooms) && (
             <div className="flex justify-start gap-1.5">
@@ -357,6 +546,20 @@ const AIDesignerSidebar: React.FC<Props> = ({
         </div>
       )}
 
+      {projectBrief && (
+        <div className="mb-2 bg-neutral-900 border border-neutral-800 rounded-xl p-3 flex-shrink-0 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-neutral-300 flex items-center gap-1">
+              <CheckCircle2 size={11} className="text-indigo-400" /> 專案資料已整理
+            </span>
+            <span className="text-[9px] text-neutral-600">{projectBrief.targetRoom || '未指定空間'}</span>
+          </div>
+          <p className="text-[10px] text-neutral-500 leading-relaxed line-clamp-2">
+            {projectBrief.summary || [projectBrief.household, projectBrief.area, projectBrief.stylePreference].filter(Boolean).join(' · ') || '已建立結構化需求資料'}
+          </p>
+        </div>
+      )}
+
       {/* Input bar */}
       <div className="pt-2 space-y-2 flex-shrink-0 border-t border-neutral-800/60">
         {/* Textarea input — Claude-style: Enter to send, Shift+Enter for newline, IME-safe */}
@@ -381,7 +584,7 @@ const AIDesignerSidebar: React.FC<Props> = ({
               setIsComposing(false);
               setInput((e.target as HTMLTextAreaElement).value);
             }}
-            placeholder={roomList.length > 0 && !selectedRoom ? '輸入想渲染的空間名稱...' : '詢問 AI 設計師...'}
+            placeholder={roomList.length > 0 && !selectedRoom ? '輸入想看的空間，例如客廳...' : '告訴 AI 你的生活需求...'}
             disabled={isLoading || analyzingRooms}
             className="w-full bg-transparent text-xs text-white placeholder:text-neutral-600 outline-none resize-none leading-relaxed overflow-y-auto"
             style={{ minHeight: '20px', maxHeight: '110px' }}
@@ -415,20 +618,20 @@ const AIDesignerSidebar: React.FC<Props> = ({
           onClick={() => {
             if (renderPrompt) {
               // Full AI brief — most accurate
-              onGenerate(`[AI_BRIEF]\n${renderPrompt}`);
+              onGenerate(`[AI_BRIEF]\n${renderPrompt}`, projectBrief, projectBrief?.summary);
             } else if (selectedRoom) {
               // No render brief yet, but room is selected — use room spatial info as minimum context
               const fallback = `生成一張${selectedRoom.zhName}的照片級室內設計渲染圖。空間資訊：${selectedRoom.description}。請選擇最合適的視角和設計風格呈現此空間。`;
-              onGenerate(`[AI_BRIEF]\n${fallback}`);
+              onGenerate(`[AI_BRIEF]\n${fallback}`, projectBrief, projectBrief?.summary);
             } else {
-              onGenerate('');
+              onGenerate('', projectBrief, projectBrief?.summary);
             }
           }}
           isLoading={isGenerating}
           className="w-full py-3 bg-gradient-to-r from-neutral-200 to-white hover:from-white hover:to-neutral-100 !text-black font-semibold text-sm rounded-full flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.97] transition-all border border-white/20 shadow-lg shadow-white/5"
           icon={<Wand2 size={15} className="text-indigo-600 animate-pulse" />}
         >
-          {isGenerating ? '生成渲染中...' : renderPrompt ? '依 AI 設計指令渲染' : '渲染設計方案'}
+          {isGenerating ? '生成渲染中...' : renderPrompt ? '產生 AI 整理的方案' : '產生設計方案'}
         </Button>
 
         {!renderPrompt && (

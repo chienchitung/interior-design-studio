@@ -11,6 +11,7 @@ interface ImageUploadProps {
   files?: File[];
   onFilesChange?: (files: File[]) => void;
   multiple?: boolean;
+  maxFiles?: number;
   compact?: boolean;
 }
 
@@ -22,12 +23,25 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
   files,
   onFilesChange,
   multiple = false,
+  maxFiles = Infinity,
   compact = false,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  // Single-file preview URL — managed via effect to avoid per-render leaks
+  const [singlePreview, setSinglePreview] = useState<string | null>(null);
   // Previews for multiple files to avoid constant URL regeneration
   const [previews, setPreviews] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!multiple && file) {
+      const url = URL.createObjectURL(file);
+      setSinglePreview(url);
+      return () => { URL.revokeObjectURL(url); };
+    } else {
+      setSinglePreview(null);
+    }
+  }, [file, multiple]);
 
   useEffect(() => {
     if (multiple && files) {
@@ -63,7 +77,9 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
     if (validFiles.length === 0) return;
 
     if (multiple && onFilesChange && files) {
-      onFilesChange([...files, ...validFiles]);
+      const remaining = maxFiles - files.length;
+      if (remaining <= 0) return;
+      onFilesChange([...files, ...validFiles.slice(0, remaining)]);
     } else if (onFileChange) {
       onFileChange(validFiles[0]);
     }
@@ -116,8 +132,8 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
             onClick={() => inputRef.current?.click()}>
             {hasFiles ? (
               <>
-                {!multiple && file && (
-                  <img src={URL.createObjectURL(file)} alt="" className="w-8 h-8 object-cover rounded flex-shrink-0" />
+                {!multiple && singlePreview && (
+                  <img src={singlePreview} alt="" className="w-8 h-8 object-cover rounded flex-shrink-0" />
                 )}
                 {multiple && files && files.length > 0 && (
                   <div className="flex -space-x-1 flex-shrink-0">
@@ -193,10 +209,10 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
         />
 
         {/* SINGLE MODE DISPLAY */}
-        {!multiple && file && (
+        {!multiple && singlePreview && (
           <div className="absolute inset-0 p-2 w-full h-full">
             <img
-              src={URL.createObjectURL(file)}
+              src={singlePreview}
               alt="Preview"
               className="w-full h-full object-cover rounded-lg"
             />
@@ -234,17 +250,21 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
                  </button>
               </div>
             ))}
-            {/* Add More Placeholder within Grid */}
-             <div 
-              className="aspect-square rounded-lg border border-neutral-700 border-dashed flex flex-col items-center justify-center text-neutral-500 hover:bg-neutral-700/50 transition-colors hover:text-neutral-300"
-              onClick={(e) => {
-                e.stopPropagation();
-                inputRef.current?.click();
-              }}
-            >
-                 <Plus size={20} />
-                 <span className="text-[10px] mt-1">新增</span>
-            </div>
+            {/* Add More — hidden when at limit */}
+            {files.length < maxFiles && (
+              <div
+                className="aspect-square rounded-lg border border-neutral-700 border-dashed flex flex-col items-center justify-center text-neutral-500 hover:bg-neutral-700/50 transition-colors hover:text-neutral-300"
+                onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}
+              >
+                <Plus size={20} />
+                <span className="text-[10px] mt-1">新增</span>
+              </div>
+            )}
+            {files.length >= maxFiles && maxFiles !== Infinity && (
+              <div className="aspect-square rounded-lg border border-neutral-800 flex flex-col items-center justify-center text-neutral-600">
+                <span className="text-[10px] text-center leading-tight">已達<br/>上限</span>
+              </div>
+            )}
           </div>
         )}
  

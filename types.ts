@@ -48,10 +48,48 @@ export interface DesignConfig {
   prompt: string;
   floorPlan: File | null;
   realScenes: File[];
-  realScene?: File | null; // Keep for backward compatibility if needed, though we will remove usage
 }
 
 export interface GeneratedResult {
   imageUrl: string;
   timestamp: number;
+}
+
+export interface ProjectBrief {
+  household: string;
+  area: string;
+  budget: string;
+  painPoints: string;
+  stylePreference: string;
+  rejectedElements: string;
+  targetRoom: string;
+  constructionLimits: string;
+  storageNeeds: string;
+  lifestyleNotes: string;
+  summary: string;
+}
+
+export type ChecklistStatus = 'pass' | 'warning' | 'fail' | 'unknown';
+
+export interface DesignChecklistItem {
+  key: string;
+  label: string;
+  status: ChecklistStatus;
+  note: string;
+}
+
+export interface DesignVersionRecord {
+  id: string;
+  imageUrl: string;
+  createdAt: number;
+  source: 'manual_generate' | 'ai_generate' | 'import' | 'magic_edit';
+  title: string;
+  prompt: string;
+  style: DesignStyle;
+  roomType: RoomType;
+  changeReason: string;
+  aiSummary?: string;
+  projectBrief?: ProjectBrief | null;
+  checklist?: DesignChecklistItem[];
+  checklistStatus?: 'idle' | 'checking' | 'done' | 'error';
 }
