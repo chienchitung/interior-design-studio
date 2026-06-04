@@ -581,9 +581,11 @@ const App: React.FC = () => {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white text-black mb-6 shadow-lg shadow-white/10">
             <Armchair size={32} />
           </div>
-          <h1 className="text-3xl font-bold text-white mb-2">Interior Design Studio</h1>
-          <p className="text-neutral-400 mb-8 leading-relaxed">
-            專業級 AI 空間視覺化工具。
+          <h1 className="brand-wordmark">
+            <span className="brand-room">Room</span><span className="brand-wise">Wise</span>
+          </h1>
+          <p className="brand-subtitle">
+            專業級 AI 空間視覺化工具
           </p>
           
           {error && (
@@ -783,7 +785,9 @@ const App: React.FC = () => {
 	              <Armchair size={22} className="text-black" strokeWidth={2.5} />
 	            </div>
 	            <div className="flex flex-col justify-center h-10">
-	              <h1 className="text-lg font-bold text-white leading-none mb-1">AI 裝修小幫手</h1>
+	              <h1 className="text-lg leading-none mb-1" style={{ fontFamily: 'Figtree, sans-serif', letterSpacing: '-0.02em' }}>
+                <span style={{ fontWeight: 400, color: '#A8A29E' }}>Room</span><span style={{ fontWeight: 600, color: '#FFFFFF' }}>Wise</span>
+              </h1>
 	              <span className="text-[10px] font-bold tracking-[0.08em] text-neutral-500 uppercase leading-none">回答問題，上傳照片，就能開始規劃</span>
 	            </div>
 	          </div>
