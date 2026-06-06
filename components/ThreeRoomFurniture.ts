@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { DesignStyle } from '../types';
 
 export interface StylePalette {
@@ -193,6 +194,371 @@ export const getStylePalette = (style: DesignStyle): StylePalette => {
   }
 };
 
+const textureCache = new Map<string, THREE.CanvasTexture>();
+
+const toHexColor = (color: number): string => `#${color.toString(16).padStart(6, '0')}`;
+
+const createFurnitureTexture = (
+  key: string,
+  size: number,
+  draw: (ctx: CanvasRenderingContext2D, size: number) => void
+): THREE.CanvasTexture | null => {
+  if (typeof document === 'undefined') return null;
+
+  const cached = textureCache.get(key);
+  if (cached) return cached;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  draw(ctx, size);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(1.8, 1.8);
+  texture.anisotropy = 4;
+  texture.needsUpdate = true;
+  textureCache.set(key, texture);
+  return texture;
+};
+
+const createFabricTexture = (baseColor: number, variant: string = 'woven'): THREE.CanvasTexture | null => {
+  return createFurnitureTexture(`fabric:${variant}:${baseColor}`, 256, (ctx, size) => {
+    ctx.fillStyle = toHexColor(baseColor);
+    ctx.fillRect(0, 0, size, size);
+
+    ctx.globalAlpha = 0.18;
+    for (let y = 0; y < size; y += 6) {
+      ctx.fillStyle = y % 12 === 0 ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)';
+      ctx.fillRect(0, y, size, 1);
+    }
+
+    ctx.globalAlpha = 0.14;
+    for (let x = 0; x < size; x += 7) {
+      ctx.fillStyle = x % 14 === 0 ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.14)';
+      ctx.fillRect(x, 0, 1, size);
+    }
+
+    ctx.globalAlpha = 0.1;
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 1;
+    for (let i = -size; i < size * 2; i += 18) {
+      ctx.beginPath();
+      ctx.moveTo(i, 0);
+      ctx.lineTo(i + size, size);
+      ctx.stroke();
+    }
+
+    ctx.globalAlpha = 1;
+  });
+};
+
+const createLeatherTexture = (baseColor: number): THREE.CanvasTexture | null => {
+  return createFurnitureTexture(`leather:${baseColor}`, 256, (ctx, size) => {
+    ctx.fillStyle = toHexColor(baseColor);
+    ctx.fillRect(0, 0, size, size);
+
+    ctx.globalAlpha = 0.16;
+    for (let y = 0; y < size; y += 5) {
+      const wobble = Math.sin(y * 0.17) * 6;
+      ctx.strokeStyle = y % 15 === 0 ? 'rgba(255,255,255,0.24)' : 'rgba(0,0,0,0.24)';
+      ctx.beginPath();
+      for (let x = 0; x <= size; x += 8) {
+        const py = y + Math.sin((x + wobble) * 0.09) * 1.5;
+        if (x === 0) ctx.moveTo(x, py);
+        else ctx.lineTo(x, py);
+      }
+      ctx.stroke();
+    }
+
+    ctx.globalAlpha = 0.08;
+    for (let i = 0; i < 90; i++) {
+      const x = (Math.sin(i * 37.3) * 0.5 + 0.5) * size;
+      const y = (Math.sin(i * 19.7 + 3) * 0.5 + 0.5) * size;
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)';
+      ctx.fillRect(x, y, 1.5, 1.5);
+    }
+
+    ctx.globalAlpha = 1;
+  });
+};
+
+const createWoodTexture = (baseColor: number): THREE.CanvasTexture | null => {
+  return createFurnitureTexture(`wood:${baseColor}`, 512, (ctx, size) => {
+    ctx.fillStyle = toHexColor(baseColor);
+    ctx.fillRect(0, 0, size, size);
+
+    const grad = ctx.createLinearGradient(0, 0, size, 0);
+    grad.addColorStop(0, 'rgba(255,255,255,0.10)');
+    grad.addColorStop(0.42, 'rgba(0,0,0,0.03)');
+    grad.addColorStop(1, 'rgba(0,0,0,0.18)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+
+    ctx.lineWidth = 1.2;
+    for (let y = 8; y < size; y += 11) {
+      const dark = y % 33 === 0;
+      ctx.strokeStyle = dark ? 'rgba(0,0,0,0.22)' : 'rgba(255,255,255,0.10)';
+      ctx.beginPath();
+      for (let x = 0; x <= size; x += 8) {
+        const py = y + Math.sin(x * 0.028 + y * 0.06) * 5 + Math.sin(x * 0.09) * 1.6;
+        if (x === 0) ctx.moveTo(x, py);
+        else ctx.lineTo(x, py);
+      }
+      ctx.stroke();
+    }
+
+    for (let i = 0; i < 8; i++) {
+      const x = (Math.sin(i * 41.9) * 0.5 + 0.5) * size;
+      const y = (Math.sin(i * 23.1 + 2) * 0.5 + 0.5) * size;
+      ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(x, y, 22, 7, Math.sin(i) * 0.4, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.beginPath();
+      ctx.ellipse(x, y, 14, 4, Math.sin(i) * 0.4, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  });
+};
+
+const createStoneTexture = (baseColor: number): THREE.CanvasTexture | null => {
+  return createFurnitureTexture(`stone:${baseColor}`, 512, (ctx, size) => {
+    ctx.fillStyle = toHexColor(baseColor);
+    ctx.fillRect(0, 0, size, size);
+
+    const wash = ctx.createRadialGradient(size * 0.25, size * 0.2, 12, size * 0.5, size * 0.5, size * 0.8);
+    wash.addColorStop(0, 'rgba(255,255,255,0.16)');
+    wash.addColorStop(0.55, 'rgba(0,0,0,0.02)');
+    wash.addColorStop(1, 'rgba(0,0,0,0.14)');
+    ctx.fillStyle = wash;
+    ctx.fillRect(0, 0, size, size);
+
+    const veins = [
+      [18, 96, 180, 220, 340, 68, 520, 300],
+      [500, 50, 360, 150, 220, 360, 20, 470],
+      [40, 430, 180, 300, 330, 260, 540, 120],
+      [95, 10, 180, 130, 290, 160, 430, 510],
+    ];
+
+    veins.forEach((v, idx) => {
+      ctx.strokeStyle = idx % 2 === 0 ? 'rgba(90,90,90,0.20)' : 'rgba(255,255,255,0.22)';
+      ctx.lineWidth = idx % 2 === 0 ? 1.8 : 1.2;
+      ctx.beginPath();
+      ctx.moveTo(v[0], v[1]);
+      ctx.bezierCurveTo(v[2], v[3], v[4], v[5], v[6], v[7]);
+      ctx.stroke();
+    });
+  });
+};
+
+const createFabricMaterial = (
+  color: number,
+  roughness: number,
+  metalness: number = 0,
+  variant: string = 'woven'
+): THREE.MeshStandardMaterial => {
+  const map = createFabricTexture(color, variant);
+  return new THREE.MeshStandardMaterial({
+    color: map ? 0xffffff : color,
+    map,
+    bumpMap: map,
+    bumpScale: 0.012,
+    roughness,
+    metalness,
+  });
+};
+
+const createLeatherMaterial = (
+  color: number,
+  roughness: number,
+  metalness: number
+): THREE.MeshStandardMaterial => {
+  const map = createLeatherTexture(color);
+  return new THREE.MeshStandardMaterial({
+    color: map ? 0xffffff : color,
+    map,
+    bumpMap: map,
+    bumpScale: 0.018,
+    roughness,
+    metalness,
+  });
+};
+
+const createWoodMaterial = (
+  color: number,
+  roughness: number,
+  metalness: number = 0.08
+): THREE.MeshStandardMaterial => {
+  const map = createWoodTexture(color);
+  return new THREE.MeshStandardMaterial({
+    color: map ? 0xffffff : color,
+    map,
+    bumpMap: map,
+    bumpScale: 0.018,
+    roughness,
+    metalness,
+  });
+};
+
+const createStoneMaterial = (
+  color: number,
+  roughness: number,
+  metalness: number = 0
+): THREE.MeshStandardMaterial => {
+  const map = createStoneTexture(color);
+  return new THREE.MeshStandardMaterial({
+    color: map ? 0xffffff : color,
+    map,
+    bumpMap: map,
+    bumpScale: 0.006,
+    roughness,
+    metalness,
+  });
+};
+
+const roundedBoxGeo = (
+  width: number,
+  height: number,
+  depth: number,
+  radius: number = 0.035,
+  segments: number = 3
+): RoundedBoxGeometry => {
+  const safeRadius = Math.max(0.001, Math.min(radius, width * 0.45, height * 0.45, depth * 0.45));
+  return new RoundedBoxGeometry(width, height, depth, segments, safeRadius);
+};
+
+const createRoundedBox = (
+  width: number,
+  height: number,
+  depth: number,
+  material: THREE.Material | THREE.Material[],
+  radius: number = 0.035,
+  segments: number = 3
+): THREE.Mesh => {
+  return new THREE.Mesh(roundedBoxGeo(width, height, depth, radius, segments), material);
+};
+
+type SofaPillowPattern = 'plain' | 'border' | 'center_band' | 'twin_stripe' | 'geo_disc' | 'woven_cross';
+
+interface SofaPillowSpec {
+  color: number;
+  accentColor: number;
+  pattern: SofaPillowPattern;
+}
+
+const blendHexColor = (source: number, target: number, amount: number): number => {
+  const sr = (source >> 16) & 255;
+  const sg = (source >> 8) & 255;
+  const sb = source & 255;
+  const tr = (target >> 16) & 255;
+  const tg = (target >> 8) & 255;
+  const tb = target & 255;
+  const mix = (a: number, b: number) => Math.round(a + (b - a) * amount);
+  return (mix(sr, tr) << 16) | (mix(sg, tg) << 8) | mix(sb, tb);
+};
+
+const getSofaPillowSpecs = (style: DesignStyle, palette: StylePalette, couchMaterial: string): SofaPillowSpec[] => {
+  const fallbackAccent = palette.pillowColors[1] || palette.metalColor;
+
+  if (couchMaterial === 'leather') {
+    return [
+      { color: 0xe8e1d7, accentColor: 0x8a5a38, pattern: 'border' },
+      { color: 0x46564f, accentColor: 0xe9d8bd, pattern: 'center_band' },
+      { color: 0xa45d34, accentColor: 0xf0d9bd, pattern: 'twin_stripe' }
+    ];
+  }
+
+  switch (style) {
+    case DesignStyle.MODERN:
+      return [
+        { color: 0xf0f0ec, accentColor: 0x161616, pattern: 'border' },
+        { color: 0x53606b, accentColor: 0xe5e2dc, pattern: 'twin_stripe' },
+        { color: 0xb9b7b0, accentColor: 0x2d3238, pattern: 'center_band' }
+      ];
+    case DesignStyle.MINIMALIST:
+      return [
+        { color: 0xe7e2d8, accentColor: 0xbeb7aa, pattern: 'plain' },
+        { color: 0xcfc8bc, accentColor: 0xf7f4ec, pattern: 'center_band' },
+        { color: 0xf4f0e7, accentColor: 0xa9a194, pattern: 'border' }
+      ];
+    case DesignStyle.SCANDINAVIAN:
+      return [
+        { color: 0xb5c3d6, accentColor: 0xf4eadc, pattern: 'twin_stripe' },
+        { color: 0x9ab0a3, accentColor: 0xe8cfb2, pattern: 'border' },
+        { color: 0xf0e7d6, accentColor: 0x778ca3, pattern: 'center_band' }
+      ];
+    case DesignStyle.INDUSTRIAL:
+      return [
+        { color: 0x30343a, accentColor: 0xb46a3c, pattern: 'center_band' },
+        { color: 0x5c4a3e, accentColor: 0x1c1e22, pattern: 'border' },
+        { color: 0x76706a, accentColor: 0x2d3436, pattern: 'twin_stripe' }
+      ];
+    case DesignStyle.MID_CENTURY_MODERN:
+      return [
+        { color: 0xe0b543, accentColor: 0x0a5f6b, pattern: 'center_band' },
+        { color: 0xd76c49, accentColor: 0xf2df9a, pattern: 'twin_stripe' },
+        { color: 0xf2df9a, accentColor: 0x0f6a72, pattern: 'border' }
+      ];
+    case DesignStyle.LUXURY:
+      return [
+        { color: 0x101010, accentColor: 0xd4af37, pattern: 'border' },
+        { color: 0xd5b456, accentColor: 0x0d2b1f, pattern: 'center_band' },
+        { color: 0xf4d36f, accentColor: 0x17382c, pattern: 'twin_stripe' }
+      ];
+    case DesignStyle.BOHEMIAN:
+      return [
+        { color: 0xc65f39, accentColor: 0xf1b84b, pattern: 'woven_cross' },
+        { color: 0x245d57, accentColor: 0xf4dfba, pattern: 'geo_disc' },
+        { color: 0xf0a444, accentColor: 0x8b2f24, pattern: 'twin_stripe' }
+      ];
+    case DesignStyle.JAPANDI:
+      return [
+        { color: 0xd8d0c4, accentColor: 0x8b857f, pattern: 'center_band' },
+        { color: 0x9b9187, accentColor: 0xefe8dc, pattern: 'plain' },
+        { color: 0xc8c0b4, accentColor: 0x5f5a54, pattern: 'border' }
+      ];
+    case DesignStyle.COASTAL:
+      return [
+        { color: 0xf7f8f4, accentColor: 0x2e5f82, pattern: 'twin_stripe' },
+        { color: 0xa9c9d6, accentColor: 0xffffff, pattern: 'border' },
+        { color: 0x6e93aa, accentColor: 0xf7f8f4, pattern: 'center_band' }
+      ];
+    default:
+      return [
+        { color: palette.pillowColors[0] || 0x5a6d7a, accentColor: fallbackAccent, pattern: 'center_band' },
+        { color: fallbackAccent, accentColor: palette.pillowColors[0] || 0x5a6d7a, pattern: 'border' },
+        { color: 0xf1e6d8, accentColor: palette.pillowColors[0] || 0x5a6d7a, pattern: 'twin_stripe' }
+      ];
+  }
+};
+
+const createSoftSquarePillowBody = (
+  width: number,
+  height: number,
+  depth: number,
+  material: THREE.Material
+): THREE.Mesh => {
+  const bodyMaterial = material.clone();
+  bodyMaterial.side = THREE.DoubleSide;
+  const body = createRoundedBox(width, height, depth, bodyMaterial, 0.035, 5);
+  body.geometry.computeVertexNormals();
+  return body;
+};
+
+const createPillowPipe = (length: number, axis: 'x' | 'y', material: THREE.Material): THREE.Mesh => {
+  const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, length, 10), material);
+  if (axis === 'x') pipe.rotation.z = Math.PI / 2;
+  return pipe;
+};
+
 // Shared highly reflective premium silver-chrome material for all kitchen & bathroom faucets
 export const getFaucetChromeMaterial = (): THREE.MeshStandardMaterial => {
   return new THREE.MeshPhysicalMaterial({
@@ -235,7 +601,8 @@ export const buildLivingRoomFurniture = (
   furnitureScale: number,
   roomW: number,
   roomD: number,
-  sofaType: 'three' | 'two' | 'l_shape' = 'three'
+  sofaType: 'three' | 'two' | 'l_shape' = 'three',
+  showSofaPillows: boolean = true
 ): THREE.Group => {
   const group = new THREE.Group();
 
@@ -264,17 +631,11 @@ export const buildLivingRoomFurniture = (
     couchMetalness = 0.25;
   }
 
-  const couchMat = new THREE.MeshStandardMaterial({
-    color: couchColor,
-    roughness: couchRoughness,
-    metalness: couchMetalness,
-  });
+  const couchMat = couchMaterial === 'leather'
+    ? createLeatherMaterial(couchColor, couchRoughness, couchMetalness)
+    : createFabricMaterial(couchColor, couchRoughness, couchMetalness, `sofa-${style}`);
 
-  const legsMat = new THREE.MeshStandardMaterial({
-    color: palette.woodColor,
-    roughness: palette.woodRoughness,
-    metalness: 0.1
-  });
+  const legsMat = createWoodMaterial(palette.woodColor, palette.woodRoughness, 0.1);
 
   const brassMat = new THREE.MeshStandardMaterial({
     color: palette.metalColor,
@@ -316,36 +677,32 @@ export const buildLivingRoomFurniture = (
   }
 
   // 1. Base Frame (Wooden or metal profile underline)
-  const baseFrameGeo = new THREE.BoxGeometry(baseFrameWidth, 0.06, frameDepth);
-  const baseFrameMat = new THREE.MeshStandardMaterial({
-    color: palette.woodColor,
-    roughness: palette.woodRoughness,
-    metalness: palette.metalMetalness > 0.9 ? 0.3 : 0.1
-  });
-  const baseFrame = new THREE.Mesh(baseFrameGeo, baseFrameMat);
+  const baseFrameMat = createWoodMaterial(
+    palette.woodColor,
+    palette.woodRoughness,
+    palette.metalMetalness > 0.9 ? 0.3 : 0.1
+  );
+  const baseFrame = createRoundedBox(baseFrameWidth, 0.06, frameDepth, baseFrameMat, 0.025, 2);
   baseFrame.position.set(0, 0.28, 0);
   baseFrame.castShadow = true;
   sofaGroup.add(baseFrame);
 
   // If L-shape sectional, add the forward extending lounge frame on the right side
   if (isLType) {
-    const lFrameGeo = new THREE.BoxGeometry(0.96, 0.06, 0.88);
-    const lFrame = new THREE.Mesh(lFrameGeo, baseFrameMat);
+    const lFrame = createRoundedBox(0.96, 0.06, 0.88, baseFrameMat, 0.025, 2);
     lFrame.position.set(0.98, 0.28, 0.84); // extend forward +Z
     lFrame.castShadow = true;
     sofaGroup.add(lFrame);
   }
 
   // 2. Upholstered seat base
-  const upholsteryBaseGeo = new THREE.BoxGeometry(upholsteryWidth, 0.18, 0.88);
-  const upholsteryBase = new THREE.Mesh(upholsteryBaseGeo, couchMat);
+  const upholsteryBase = createRoundedBox(upholsteryWidth, 0.18, 0.88, couchMat, 0.075, 4);
   upholsteryBase.position.set(0, 0.4, 0.02);
   upholsteryBase.castShadow = true;
   sofaGroup.add(upholsteryBase);
 
   if (isLType) {
-    const lUpholsteryGeo = new THREE.BoxGeometry(0.94, 0.18, 0.84);
-    const lUpholstery = new THREE.Mesh(lUpholsteryGeo, couchMat);
+    const lUpholstery = createRoundedBox(0.94, 0.18, 0.84, couchMat, 0.075, 4);
     lUpholstery.position.set(0.96, 0.4, 0.84);
     lUpholstery.castShadow = true;
     sofaGroup.add(lUpholstery);
@@ -366,9 +723,9 @@ export const buildLivingRoomFurniture = (
     }
 
     const currentSeatWidth = isRightLChaise ? 0.92 : seatWidth;
-    const seatGeo = new THREE.BoxGeometry(currentSeatWidth, 0.16, currentDepth);
-    const seatMesh = new THREE.Mesh(seatGeo, couchMat);
+    const seatMesh = createRoundedBox(currentSeatWidth, 0.16, currentDepth, couchMat, 0.07, 5);
     seatMesh.castShadow = true;
+    seatMesh.receiveShadow = true;
     seatSubGroup.add(seatMesh);
 
     // Decorative piping trim around seat seams
@@ -384,8 +741,7 @@ export const buildLivingRoomFurniture = (
 
   // 4. High upholstered backrest with vertical/fluted panels
   backOffsets.forEach((xOffset, idx) => {
-    const backGeos = new THREE.BoxGeometry(idx === 2 && isLType ? backWidth - 0.04 : backWidth, 0.58, 0.18);
-    const backSegment = new THREE.Mesh(backGeos, couchMat);
+    const backSegment = createRoundedBox(idx === 2 && isLType ? backWidth - 0.04 : backWidth, 0.58, 0.18, couchMat, 0.06, 4);
     // Slightly rotated back panel for organic tilt style
     backSegment.position.set(xOffset, 0.81, -0.37);
     backSegment.rotation.x = -0.06;
@@ -394,8 +750,7 @@ export const buildLivingRoomFurniture = (
   });
 
   // 5. Curved stylized armrests (thick padded side bars)
-  const armLGeo = new THREE.BoxGeometry(0.22, 0.56, 0.94);
-  const armL = new THREE.Mesh(armLGeo, couchMat);
+  const armL = createRoundedBox(0.22, 0.56, 0.94, couchMat, 0.08, 5);
   armL.position.set(armLeftX, 0.61, 0.005);
   armL.castShadow = true;
   sofaGroup.add(armL);
@@ -410,106 +765,120 @@ export const buildLivingRoomFurniture = (
   }
   sofaGroup.add(armR);
 
-  // 6. Highly Optimized Realistic Fluffy/Puffy Pillows (Cushions)
-  const pillowColor = palette.pillowColors[0] || 0x5a6d7a;
-  const buildPillowMesh = (pColor: number, bColor: number) => {
+  // 6. Square throw pillows with style-matched colors and patterns
+  const pillowSpecs = getSofaPillowSpecs(style, palette, couchMaterial);
+  const buildPillowMesh = (spec: SofaPillowSpec) => {
     const pGroup = new THREE.Group();
-    const pMat = new THREE.MeshStandardMaterial({
-      color: pColor,
-      roughness: 0.85
-    });
-    const btMat = new THREE.MeshStandardMaterial({
-      color: bColor,
-      roughness: 0.2,
-      metalness: 0.8
-    });
+    const pMat = createFabricMaterial(spec.color, 0.88, 0, `sofa-square-pillow-${style}-${spec.color}`);
+    const seamColor = blendHexColor(spec.color, spec.color > 0x888888 ? 0x6f665c : 0xffffff, 0.14);
+    const seamMat = createFabricMaterial(seamColor, 0.93, 0, `sofa-square-pillow-seam-${style}-${spec.color}`);
+    const accentMat = createFabricMaterial(spec.accentColor, 0.9, 0, `sofa-square-pillow-accent-${style}-${spec.accentColor}`);
 
-    // Make a round-cornered puffy pillow using overlapping scaled shapes
-    // 1. Center plump core (squashed box)
-    const pCore = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.38, 0.08), pMat);
+    const pCore = createSoftSquarePillowBody(0.5, 0.5, 0.15, pMat);
     pCore.castShadow = true;
+    pCore.receiveShadow = true;
     pGroup.add(pCore);
 
-    // 2. High-volume center domes (front & back puff)
-    const puffGeo = new THREE.SphereGeometry(0.19, 20, 20);
-    const fPuff = new THREE.Mesh(puffGeo, pMat);
-    fPuff.scale.set(1.05, 1.05, 0.45);
-    fPuff.position.set(0, 0, 0.038);
-    fPuff.castShadow = true;
-    pGroup.add(fPuff);
+    const addPiping = (axis: 'x' | 'y', length: number, x: number, y: number) => {
+      const pipe = createPillowPipe(length, axis, seamMat);
+      pipe.position.set(x, y, 0.083);
+      pipe.castShadow = true;
+      pGroup.add(pipe);
+    };
 
-    const bPuff = fPuff.clone();
-    bPuff.position.z = -0.038;
-    bPuff.rotation.y = Math.PI;
-    pGroup.add(bPuff);
+    addPiping('x', 0.41, 0, 0.215);
+    addPiping('x', 0.41, 0, -0.215);
+    addPiping('y', 0.41, -0.215, 0);
+    addPiping('y', 0.41, 0.215, 0);
 
-    // 3. Beveled borders (cylinders along edges)
-    const borderCylGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.38, 12);
-    
-    const cyTop = new THREE.Mesh(borderCylGeo, pMat);
-    cyTop.rotation.z = Math.PI / 2;
-    cyTop.position.set(0, 0.19, 0);
-    pGroup.add(cyTop);
-
-    const cyBtm = cyTop.clone();
-    cyBtm.position.y = -0.19;
-    pGroup.add(cyBtm);
-
-    const cyLeft = new THREE.Mesh(borderCylGeo, pMat);
-    cyLeft.position.set(-0.19, 0, 0);
-    pGroup.add(cyLeft);
-
-    const cyRight = cyLeft.clone();
-    cyRight.position.x = 0.19;
-    pGroup.add(cyRight);
-
-    // 4. Smooth corner vertices (sphere caps)
-    const cornerSp = new THREE.SphereGeometry(0.04, 12, 12);
-    const cornerOffsets = [[-0.19, 0.19], [0.19, 0.19], [-0.19, -0.19], [0.19, -0.19]];
-    cornerOffsets.forEach(([cx, cy]) => {
-      const cornerM = new THREE.Mesh(cornerSp, pMat);
-      cornerM.position.set(cx, cy, 0);
-      pGroup.add(cornerM);
+    [-1, 1].forEach((xDir) => {
+      [-1, 1].forEach((yDir) => {
+        const corner = new THREE.Mesh(new THREE.SphereGeometry(0.015, 10, 8), seamMat);
+        corner.scale.set(1, 0.78, 0.5);
+        corner.position.set(xDir * 0.216, yDir * 0.216, 0.086);
+        corner.castShadow = true;
+        pGroup.add(corner);
+      });
     });
 
-    // 5. Classic central tufted button
-    const btnGeo = new THREE.SphereGeometry(0.016, 12, 12);
-    const btnF = new THREE.Mesh(btnGeo, btMat);
-    btnF.position.set(0, 0, 0.082);
-    btnF.castShadow = true;
-    pGroup.add(btnF);
+    const addFrontBand = (width: number, height: number, x: number, y: number, rotZ: number = 0) => {
+      const band = createRoundedBox(width, height, 0.006, accentMat, 0.003, 2);
+      band.position.set(x, y, 0.088);
+      band.rotation.z = rotZ;
+      band.castShadow = true;
+      pGroup.add(band);
+    };
 
-    const btnB = btnF.clone();
-    btnB.position.z = -0.082;
-    pGroup.add(btnB);
+    switch (spec.pattern) {
+      case 'border':
+        addFrontBand(0.25, 0.011, 0, 0.125);
+        addFrontBand(0.25, 0.011, 0, -0.125);
+        addFrontBand(0.011, 0.25, -0.125, 0);
+        addFrontBand(0.011, 0.25, 0.125, 0);
+        break;
+      case 'center_band':
+        addFrontBand(0.27, 0.042, 0, 0);
+        break;
+      case 'twin_stripe':
+        addFrontBand(0.28, 0.011, 0, 0.055);
+        addFrontBand(0.28, 0.011, 0, -0.055);
+        break;
+      case 'geo_disc': {
+        const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.006, 24), accentMat);
+        disc.rotation.x = Math.PI / 2;
+        disc.position.set(-0.08, 0.072, 0.09);
+        disc.castShadow = true;
+        pGroup.add(disc);
+        addFrontBand(0.2, 0.018, 0.055, -0.065, -0.48);
+        break;
+      }
+      case 'woven_cross':
+        addFrontBand(0.28, 0.014, 0, 0, Math.PI / 4);
+        addFrontBand(0.28, 0.014, 0, 0, -Math.PI / 4);
+        break;
+      default:
+        break;
+    }
 
     return pGroup;
   };
 
-  // Left pillow leaning naturally against armrest
-  const pillow1Group = buildPillowMesh(pillowColor, palette.metalColor);
-  pillow1Group.position.set(armLeftX + 0.31, 0.65, -0.21);
-  pillow1Group.rotation.set(0.1, Math.PI / 10, -0.15);
-  sofaGroup.add(pillow1Group);
+  const placePillow = (
+    spec: SofaPillowSpec,
+    x: number,
+    y: number,
+    z: number,
+    yaw: number,
+    roll: number,
+    scale: number = 1,
+    pitch: number = -0.08
+  ) => {
+    const pillow = buildPillowMesh(spec);
+    pillow.position.set(x, y, z);
+    pillow.rotation.set(pitch, yaw, roll);
+    pillow.scale.set(scale, scale, scale);
+    sofaGroup.add(pillow);
+  };
 
-  // Right pillow leaning naturally
-  const pillow2Group = buildPillowMesh(pillowColor, palette.metalColor);
-  if (isLType) {
-    pillow2Group.position.set(armRightX - 0.31, 0.65, 0.38); // shifted forward along custom lounge
-    pillow2Group.rotation.set(0.1, -Math.PI / 10, 0.15);
-  } else {
-    pillow2Group.position.set(armRightX - 0.31, 0.65, -0.21);
-    pillow2Group.rotation.set(0.1, -Math.PI / 10, 0.15);
-  }
-  sofaGroup.add(pillow2Group);
+  if (showSofaPillows) {
+    const leftCornerPillowX = armLeftX + 0.36;
+    const rightCornerPillowX = armRightX - 0.36;
+    const leftPillowYaw = Math.PI / 9;
+    const rightPillowYaw = -Math.PI / 9;
+    const rearPillowScale = isTwoSeater ? 0.96 : 1;
 
-  // If L-shaped sectional, add a cozy third throw pillow propped in the corner!
-  if (isLType) {
-    const cornerColor = palette.pillowColors[1] || 0xd2b48c;
-    const cornerPillow = buildPillowMesh(cornerColor, palette.metalColor);
-    cornerPillow.position.set(0.52, 0.65, -0.21);
-    cornerPillow.rotation.set(0.12, 0.05, 0.08);
-    sofaGroup.add(cornerPillow);
+    placePillow(pillowSpecs[0], leftCornerPillowX, 0.86, -0.145, leftPillowYaw, -0.08, rearPillowScale, -0.055);
+    placePillow(pillowSpecs[1] || pillowSpecs[0], leftCornerPillowX + 0.2, 0.835, -0.075, leftPillowYaw, -0.08, 0.9, -0.04);
+    placePillow(
+      pillowSpecs[2] || pillowSpecs[1] || pillowSpecs[0],
+      rightCornerPillowX,
+      0.86,
+      -0.145,
+      rightPillowYaw,
+      0.08,
+      rearPillowScale,
+      -0.055
+    );
   }
 
   // 7. Designer legs configuration (Extra legs added dynamically for sectional stability)
@@ -546,11 +915,11 @@ export const buildLivingRoomFurniture = (
   const coffeeTableGroup = new THREE.Group();
   coffeeTableGroup.name = 'coffee_table';
 
-  const tableTopMat = new THREE.MeshStandardMaterial({
-    color: palette.countertopColor,
-    roughness: palette.countertopRoughness,
-    metalness: palette.countertopMetalness,
-  });
+  const tableTopMat = createStoneMaterial(
+    palette.countertopColor,
+    palette.countertopRoughness,
+    palette.countertopMetalness
+  );
 
   // Layered Table Top (with beveled profile reveal)
   const topSubGroup = new THREE.Group();
@@ -603,10 +972,7 @@ export const buildLivingRoomFurniture = (
   tvConsoleGroup.name = 'tv_console';
 
   // Beautiful oak/walnut multi-cabinet body
-  const consoleBodyMat = new THREE.MeshStandardMaterial({
-    color: palette.woodColor,
-    roughness: palette.woodRoughness
-  });
+  const consoleBodyMat = createWoodMaterial(palette.woodColor, palette.woodRoughness, 0.08);
   const consoleBaseMat = new THREE.MeshStandardMaterial({
     color: palette.metalColor,
     metalness: palette.metalMetalness,
@@ -614,8 +980,7 @@ export const buildLivingRoomFurniture = (
   });
 
   // Main console block
-  const consoleGeo = new THREE.BoxGeometry(2.38, 0.38, 0.44);
-  const consoleMesh = new THREE.Mesh(consoleGeo, consoleBodyMat);
+  const consoleMesh = createRoundedBox(2.38, 0.38, 0.44, consoleBodyMat, 0.045, 3);
   consoleMesh.position.y = 0.23;
   consoleMesh.castShadow = true;
   consoleMesh.receiveShadow = true;
@@ -651,12 +1016,11 @@ export const buildLivingRoomFurniture = (
   tvConsoleGroup.add(handlesGroup);
 
   // Slim elevated metal runner support legs
-  const supportRunnerGeo = new THREE.BoxGeometry(2.3, 0.04, 0.38);
-  const supportRunner = new THREE.Mesh(supportRunnerGeo, consoleBaseMat);
+  const supportRunner = createRoundedBox(2.3, 0.04, 0.38, consoleBaseMat, 0.018, 2);
   supportRunner.position.y = 0.04;
   tvConsoleGroup.add(supportRunner);
 
-  const rLegL = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.38), consoleBaseMat);
+  const rLegL = createRoundedBox(0.04, 0.04, 0.38, consoleBaseMat, 0.012, 2);
   rLegL.position.set(-1.12, 0.02, 0);
   tvConsoleGroup.add(rLegL);
 
@@ -665,21 +1029,18 @@ export const buildLivingRoomFurniture = (
   tvConsoleGroup.add(rLegR);
 
   // Modern television
-  const tvFrameGeo = new THREE.BoxGeometry(1.64, 0.94, 0.04);
-  const tvFrame = new THREE.Mesh(tvFrameGeo, new THREE.MeshStandardMaterial({ color: 0x080808, roughness: 0.2 }));
+  const tvFrame = createRoundedBox(1.64, 0.94, 0.04, new THREE.MeshStandardMaterial({ color: 0x080808, roughness: 0.2 }), 0.025, 2);
   tvFrame.position.set(0, 1.25, -0.15);
   tvFrame.castShadow = true;
   tvConsoleGroup.add(tvFrame);
 
-  const tvScreenGeo = new THREE.BoxGeometry(1.59, 0.89, 0.015);
-  const tvScreen = new THREE.Mesh(tvScreenGeo, new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.12, metalness: 0.1 }));
+  const tvScreen = createRoundedBox(1.59, 0.89, 0.015, new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.12, metalness: 0.1 }), 0.02, 2);
   tvScreen.position.set(0, 1.25, -0.13);
   tvConsoleGroup.add(tvScreen);
 
   // High-fidelity audio soundbar below the screen
-  const soundbarGeo = new THREE.BoxGeometry(0.9, 0.048, 0.08);
   const soundbarMat = new THREE.MeshStandardMaterial({ color: 0x181818, roughness: 0.75 });
-  const soundbar = new THREE.Mesh(soundbarGeo, soundbarMat);
+  const soundbar = createRoundedBox(0.9, 0.048, 0.08, soundbarMat, 0.025, 3);
   soundbar.position.set(0, 0.444, 0.04);
   soundbar.castShadow = true;
   tvConsoleGroup.add(soundbar);
@@ -717,14 +1078,8 @@ export const buildBedroomFurniture = (
 
   const palette = getStylePalette(style);
 
-  const woodBedMat = new THREE.MeshStandardMaterial({
-    color: palette.woodColor,
-    roughness: palette.woodRoughness
-  });
-  const fabricHeadboardMat = new THREE.MeshStandardMaterial({
-    color: palette.couchColor,
-    roughness: palette.couchRoughness
-  });
+  const woodBedMat = createWoodMaterial(palette.woodColor, palette.woodRoughness, 0.08);
+  const fabricHeadboardMat = createFabricMaterial(palette.couchColor, palette.couchRoughness, 0, `headboard-${style}`);
   const brassMat = new THREE.MeshStandardMaterial({
     color: palette.metalColor,
     metalness: palette.metalMetalness,
@@ -736,8 +1091,7 @@ export const buildBedroomFurniture = (
   const mattressWidth = isSingle ? 1.35 : 2.0;
 
   // 1. Platform Bed Base (elevated slightly above the floor)
-  const baseFrameGeo = new THREE.BoxGeometry(bedWidth, 0.16, 1.94);
-  const baseFrame = new THREE.Mesh(baseFrameGeo, woodBedMat);
+  const baseFrame = createRoundedBox(bedWidth, 0.16, 1.94, woodBedMat, 0.045, 3);
   baseFrame.position.y = 0.22;
   baseFrame.castShadow = true;
   baseFrame.receiveShadow = true;
@@ -760,19 +1114,17 @@ export const buildBedroomFurniture = (
   const numPanels = isSingle ? 3 : 4;
   const totalW = bedWidth;
   const panelW = totalW / numPanels;
-  const panelGeo = new THREE.BoxGeometry(panelW - 0.012, 1.15, 0.14);
   
   for (let i = 0; i < numPanels; i++) {
     const xPos = -totalW / 2 + panelW / 2 + i * panelW;
-    const panel = new THREE.Mesh(panelGeo, fabricHeadboardMat);
+    const panel = createRoundedBox(panelW - 0.012, 1.15, 0.14, fabricHeadboardMat, 0.045, 4);
     panel.position.set(xPos, 0.68, -0.93);
     panel.castShadow = true;
     headboardGroup.add(panel);
 
     // Decorative wood flanking frame bands
     if (i === 0 || i === numPanels - 1) {
-      const flankGeo = new THREE.BoxGeometry(0.015, 1.15, 0.148);
-      const flank = new THREE.Mesh(flankGeo, woodBedMat);
+      const flank = createRoundedBox(0.015, 1.15, 0.148, woodBedMat, 0.008, 2);
       flank.position.set(xPos + (i === 0 ? -panelW / 2 : panelW / 2), 0.68, -0.93);
       headboardGroup.add(flank);
     }
@@ -780,9 +1132,8 @@ export const buildBedroomFurniture = (
   bedGroup.add(headboardGroup);
 
   // 3. Mattress
-  const mattressGeo = new THREE.BoxGeometry(mattressWidth, 0.28, 1.82);
-  const mattressMat = new THREE.MeshStandardMaterial({ color: 0xfbfbfb, roughness: 0.95 });
-  const mattress = new THREE.Mesh(mattressGeo, mattressMat);
+  const mattressMat = createFabricMaterial(0xfbfbfb, 0.95, 0, 'mattress-ticking');
+  const mattress = createRoundedBox(mattressWidth, 0.28, 1.82, mattressMat, 0.085, 5);
   mattress.position.set(0, 0.44, 0.04);
   mattress.castShadow = true;
   mattress.receiveShadow = true;
@@ -790,30 +1141,25 @@ export const buildBedroomFurniture = (
 
   // 4. Luxury Double-Layered Pillow Stacks
   // Stacking is key: 2 large sleeping pillows tilted back, 2 decorative pillows propped forward
-  const pillowMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 });
-  const frontPillowMat = new THREE.MeshStandardMaterial({
-    color: palette.pillowColors[0] || 0x5a6d7a,
-    roughness: 0.8
-  });
-  const sleepingPillowGeo = new THREE.BoxGeometry(0.68, 0.14, 0.44);
-  const decoPillowGeo = new THREE.BoxGeometry(0.5, 0.12, 0.36);
+  const pillowMat = createFabricMaterial(0xffffff, 0.85, 0, 'sleeping-pillow');
+  const frontPillowMat = createFabricMaterial(palette.pillowColors[0] || 0x5a6d7a, 0.8, 0, `deco-pillow-${style}`);
 
   if (isSingle) {
     // Single Bed: Just one center sleeping pillow and one deco pillow stack
-    const pillowB = new THREE.Mesh(sleepingPillowGeo, pillowMat);
+    const pillowB = createRoundedBox(0.68, 0.14, 0.44, pillowMat, 0.07, 5);
     pillowB.position.set(0, 0.63, -0.66);
     pillowB.rotation.set(0.18, 0, 0);
     pillowB.castShadow = true;
     bedGroup.add(pillowB);
 
-    const pillowF = new THREE.Mesh(decoPillowGeo, frontPillowMat);
+    const pillowF = createRoundedBox(0.5, 0.12, 0.36, frontPillowMat, 0.06, 5);
     pillowF.position.set(0, 0.64, -0.48);
     pillowF.rotation.set(0.38, 0.05, 0);
     pillowF.castShadow = true;
     bedGroup.add(pillowF);
   } else {
     // Back left sleeping pillow (tilted)
-    const pillowBL = new THREE.Mesh(sleepingPillowGeo, pillowMat);
+    const pillowBL = createRoundedBox(0.68, 0.14, 0.44, pillowMat, 0.07, 5);
     pillowBL.position.set(-0.46, 0.63, -0.66);
     pillowBL.rotation.set(0.18, 0, 0);
     pillowBL.castShadow = true;
@@ -825,7 +1171,7 @@ export const buildBedroomFurniture = (
     bedGroup.add(pillowBR);
 
     // Front left decorative pillow (more vertical tilt + colored accent)
-    const pillowFL = new THREE.Mesh(decoPillowGeo, frontPillowMat);
+    const pillowFL = createRoundedBox(0.5, 0.12, 0.36, frontPillowMat, 0.06, 5);
     pillowFL.position.set(-0.42, 0.64, -0.48);
     pillowFL.rotation.set(0.38, 0.08, -0.05);
     pillowFL.castShadow = true;
@@ -841,9 +1187,9 @@ export const buildBedroomFurniture = (
 
   // 5. Layered Draped Duvet/Comforter (much realistic, drapes naturally over the mattress edges!)
   const duvetColor = palette.couchColor; // This will give it the primary style canvas color, stunning!
-  const duvetMat = new THREE.MeshStandardMaterial({ color: duvetColor, roughness: 0.9 });
+  const duvetMat = createFabricMaterial(duvetColor, 0.9, 0, `duvet-${style}`);
   const sheetAccentColor = 0xf5f5f5;
-  const sheetAccentMat = new THREE.MeshStandardMaterial({ color: sheetAccentColor, roughness: 0.95 });
+  const sheetAccentMat = createFabricMaterial(sheetAccentColor, 0.95, 0, 'folded-sheet');
 
   const duvetGroup = new THREE.Group();
 
@@ -851,15 +1197,13 @@ export const buildBedroomFurniture = (
   const duvetHalfWidth = duvetWidthTop / 2;
 
   // Top piece comforter
-  const duvetTopGeo = new THREE.BoxGeometry(duvetWidthTop, 0.038, 1.08);
-  const duvetTop = new THREE.Mesh(duvetTopGeo, duvetMat);
+  const duvetTop = createRoundedBox(duvetWidthTop, 0.038, 1.08, duvetMat, 0.03, 3);
   duvetTop.position.set(0, 0.59, 0.38);
   duvetTop.castShadow = true;
   duvetGroup.add(duvetTop);
 
   // Left drapery hanging down mattress side
-  const duvetLeftGeo = new THREE.BoxGeometry(0.038, 0.24, 1.08);
-  const duvetLeft = new THREE.Mesh(duvetLeftGeo, duvetMat);
+  const duvetLeft = createRoundedBox(0.038, 0.24, 1.08, duvetMat, 0.018, 3);
   duvetLeft.position.set(-duvetHalfWidth, 0.47, 0.38);
   duvetLeft.castShadow = true;
   duvetGroup.add(duvetLeft);
@@ -870,15 +1214,13 @@ export const buildBedroomFurniture = (
   duvetGroup.add(duvetRight);
 
   // Foot-of-bed drapery hanging down over the end
-  const duvetFootGeo = new THREE.BoxGeometry(mattressWidth, 0.24, 0.038);
-  const duvetFoot = new THREE.Mesh(duvetFootGeo, duvetMat);
+  const duvetFoot = createRoundedBox(mattressWidth, 0.24, 0.038, duvetMat, 0.018, 3);
   duvetFoot.position.set(0, 0.47, 0.92);
   duvetFoot.castShadow = true;
   duvetGroup.add(duvetFoot);
 
   // Beautiful folded sheet accent overlay at the chest level
-  const sheetFoldGeo = new THREE.BoxGeometry(duvetWidthTop - 0.01, 0.015, 0.22);
-  const sheetFold = new THREE.Mesh(sheetFoldGeo, sheetAccentMat);
+  const sheetFold = createRoundedBox(duvetWidthTop - 0.01, 0.015, 0.22, sheetAccentMat, 0.018, 3);
   sheetFold.position.set(0, 0.595, -0.18);
   sheetFold.castShadow = true;
   duvetGroup.add(sheetFold);
@@ -899,11 +1241,8 @@ export const buildBedroomFurniture = (
     const standSub = new THREE.Group();
 
     // Main cabinet body box
-    const bodyMat = new THREE.MeshStandardMaterial({
-      color: palette.woodColor,
-      roughness: palette.woodRoughness
-    });
-    const mainBox = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.38, 0.44), bodyMat);
+    const bodyMat = createWoodMaterial(palette.woodColor, palette.woodRoughness, 0.08);
+    const mainBox = createRoundedBox(0.48, 0.38, 0.44, bodyMat, 0.035, 3);
     mainBox.position.y = 0.31;
     mainBox.castShadow = true;
     mainBox.receiveShadow = true;
@@ -1012,10 +1351,7 @@ export const buildBedroomFurniture = (
     const wardrobeGroup = new THREE.Group();
     wardrobeGroup.name = 'wardrobe';
 
-    const woodWrdMat = new THREE.MeshStandardMaterial({
-      color: palette.cabinetColor,
-      roughness: palette.woodRoughness
-    });
+    const woodWrdMat = createWoodMaterial(palette.cabinetColor, palette.woodRoughness, 0.08);
     const trimGoldMat = new THREE.MeshStandardMaterial({
       color: palette.metalColor,
       metalness: palette.metalMetalness,
@@ -1023,7 +1359,7 @@ export const buildBedroomFurniture = (
     });
 
     // Main Closet cabinet body
-    const body = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.95, 0.58), woodWrdMat);
+    const body = createRoundedBox(1.2, 1.95, 0.58, woodWrdMat, 0.035, 3);
     body.position.y = 0.975;
     body.castShadow = true;
     body.receiveShadow = true;
@@ -1063,13 +1399,13 @@ export const buildBedroomFurniture = (
     wardrobeGroup.add(handleR);
 
     // Wardrobe top molding
-    const topMolding = new THREE.Mesh(new THREE.BoxGeometry(1.24, 0.04, 0.62), woodWrdMat);
+    const topMolding = createRoundedBox(1.24, 0.04, 0.62, woodWrdMat, 0.02, 2);
     topMolding.position.y = 1.965;
     topMolding.castShadow = true;
     wardrobeGroup.add(topMolding);
 
     // Bottom base plinth
-    const plinth = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.06, 0.58), new THREE.MeshStandardMaterial({ color: palette.woodColor, roughness: palette.woodRoughness }));
+    const plinth = createRoundedBox(1.2, 0.06, 0.58, createWoodMaterial(palette.woodColor, palette.woodRoughness, 0.08), 0.02, 2);
     plinth.position.y = 0.03;
     plinth.castShadow = true;
     wardrobeGroup.add(plinth);
@@ -1115,17 +1451,13 @@ export const buildDiningRoomFurniture = (
 
   const palette = getStylePalette(style);
 
-  const tableMat = new THREE.MeshStandardMaterial({
-    color: palette.countertopColor,
-    roughness: palette.countertopRoughness,
-    metalness: palette.countertopMetalness
-  });
+  const tableMat = createStoneMaterial(
+    palette.countertopColor,
+    palette.countertopRoughness,
+    palette.countertopMetalness
+  );
 
-  const legMat = new THREE.MeshStandardMaterial({
-    color: palette.woodColor,
-    roughness: palette.woodRoughness,
-    metalness: 0.1
-  });
+  const legMat = createWoodMaterial(palette.woodColor, palette.woodRoughness, 0.1);
 
   const goldMat = new THREE.MeshStandardMaterial({
     color: palette.metalColor,
@@ -1135,27 +1467,25 @@ export const buildDiningRoomFurniture = (
 
   // 1. Table Top (with gold trim banding)
   const tabletopGroup = new THREE.Group();
-  const tableTopGeo = new THREE.BoxGeometry(1.9, 0.048, 1.05);
-  const tableTop = new THREE.Mesh(tableTopGeo, tableMat);
+  const tableTop = createRoundedBox(1.9, 0.048, 1.05, tableMat, 0.04, 4);
   tableTop.position.y = 0.74;
   tableTop.castShadow = true;
   tableTop.receiveShadow = true;
   tabletopGroup.add(tableTop);
 
   // Elegant brass under-rim trim
-  const subRimGeo = new THREE.BoxGeometry(1.92, 0.015, 1.07);
-  const subRim = new THREE.Mesh(subRimGeo, goldMat);
+  const subRim = createRoundedBox(1.92, 0.015, 1.07, goldMat, 0.03, 3);
   subRim.position.y = 0.71;
   tabletopGroup.add(subRim);
 
   // Soft design touch: Fabric table runner draped across the center
-  const runnerMat = new THREE.MeshStandardMaterial({ color: palette.pillowColors[1] || 0xded8cc, roughness: 0.95 });
-  const runnerTop = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.004, 1.055), runnerMat);
+  const runnerMat = createFabricMaterial(palette.pillowColors[1] || 0xded8cc, 0.95, 0, `table-runner-${style}`);
+  const runnerTop = createRoundedBox(0.38, 0.004, 1.055, runnerMat, 0.012, 2);
   runnerTop.position.y = 0.766;
   tabletopGroup.add(runnerTop);
 
   // Runner drape edges
-  const runnerDrapeL = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.14, 0.004), runnerMat);
+  const runnerDrapeL = createRoundedBox(0.38, 0.14, 0.004, runnerMat, 0.008, 2);
   runnerDrapeL.position.set(0, 0.697, 0.528);
   tabletopGroup.add(runnerDrapeL);
 
@@ -1166,7 +1496,7 @@ export const buildDiningRoomFurniture = (
   tableGroup.add(tabletopGroup);
 
   // Twin Column H-legs (styled like architectural metal pillars)
-  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.68, 0.85), legMat);
+  const legL = createRoundedBox(0.08, 0.68, 0.85, legMat, 0.025, 3);
   legL.position.set(-0.65, 0.34, 0);
   legL.castShadow = true;
   tableGroup.add(legL);
@@ -1175,15 +1505,12 @@ export const buildDiningRoomFurniture = (
   legR.position.x = 0.65;
   tableGroup.add(legR);
 
-  const stretchCol = new THREE.Mesh(new THREE.BoxGeometry(1.22, 0.04, 0.04), legMat);
+  const stretchCol = createRoundedBox(1.22, 0.04, 0.04, legMat, 0.015, 2);
   stretchCol.position.set(0, 0.15, 0);
   tableGroup.add(stretchCol);
 
   // 6 Chairs Spaced (sculpted backs and tapered angled legs)
-  const paddingMat = new THREE.MeshStandardMaterial({
-    color: palette.couchColor,
-    roughness: palette.couchRoughness
-  });
+  const paddingMat = createFabricMaterial(palette.couchColor, palette.couchRoughness, 0, `dining-chair-${style}`);
 
   const chairList = [
     [-0.55, -0.6, 0],
@@ -1198,19 +1525,19 @@ export const buildDiningRoomFurniture = (
     const chair = new THREE.Group();
     
     // Contoured seat cushion
-    const cushion = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.42), paddingMat);
+    const cushion = createRoundedBox(0.42, 0.05, 0.42, paddingMat, 0.04, 4);
     cushion.position.y = 0.45;
     cushion.castShadow = true;
     chair.add(cushion);
 
     // Stylish upholstered backrest with wood flanking splats
     const backGroup = new THREE.Group();
-    const backCushion = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.38, 0.038), paddingMat);
+    const backCushion = createRoundedBox(0.38, 0.38, 0.038, paddingMat, 0.04, 4);
     backCushion.position.set(0, 0.66, -0.19);
     backCushion.castShadow = true;
     backGroup.add(backCushion);
 
-    const backStrapL = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.44, 0.02), legMat);
+    const backStrapL = createRoundedBox(0.02, 0.44, 0.02, legMat, 0.008, 2);
     backStrapL.position.set(-0.19, 0.63, -0.19);
     backGroup.add(backStrapL);
 
@@ -1276,27 +1603,24 @@ export const buildDiningRoomFurniture = (
   const sbPalette = getStylePalette(style);
 
   // Body: cabinetColor or woodColor
-  const sbMat = new THREE.MeshStandardMaterial({
-    color: sbPalette.cabinetColor,
-    roughness: sbPalette.woodRoughness || 0.6
-  });
+  const sbMat = createWoodMaterial(sbPalette.cabinetColor, sbPalette.woodRoughness || 0.6, 0.08);
 
   // Top marble/wood counter slab
-  const countertopMat = new THREE.MeshStandardMaterial({
-    color: sbPalette.countertopColor,
-    roughness: sbPalette.countertopRoughness,
-    metalness: sbPalette.countertopMetalness
-  });
+  const countertopMat = createStoneMaterial(
+    sbPalette.countertopColor,
+    sbPalette.countertopRoughness,
+    sbPalette.countertopMetalness
+  );
 
   // Base cabinet body (reduced height 0.66)
-  const sbBody = new THREE.Mesh(new THREE.BoxGeometry(1.98, 0.64, 0.44), sbMat);
+  const sbBody = createRoundedBox(1.98, 0.64, 0.44, sbMat, 0.045, 3);
   sbBody.position.y = 0.32;
   sbBody.castShadow = true;
   sbBody.receiveShadow = true;
   sideboardGroup.add(sbBody);
 
   // Premium Top plate surface layer (0.04 height)
-  const sbTop = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.04, 0.46), countertopMat);
+  const sbTop = createRoundedBox(2.0, 0.04, 0.46, countertopMat, 0.035, 3);
   sbTop.position.y = 0.662; 
   sbTop.castShadow = true;
   sideboardGroup.add(sbTop);
@@ -1306,9 +1630,9 @@ export const buildDiningRoomFurniture = (
   if (style === DesignStyle.INDUSTRIAL) {
     doorMat = new THREE.MeshStandardMaterial({ color: 0x1f1f21, roughness: 0.6, metalness: 0.5 });
   } else if (style === DesignStyle.MINIMALIST || style === DesignStyle.JAPANDI) {
-    doorMat = new THREE.MeshStandardMaterial({ color: sbPalette.woodColor, roughness: 0.8 });
+    doorMat = createWoodMaterial(sbPalette.woodColor, 0.8, 0.05);
   } else {
-    doorMat = new THREE.MeshStandardMaterial({ color: sbPalette.woodColor, roughness: 0.45 });
+    doorMat = createWoodMaterial(sbPalette.woodColor, 0.45, 0.08);
   }
 
   // Classic transparency transparent doors for selected styles
@@ -1328,7 +1652,7 @@ export const buildDiningRoomFurniture = (
     ? new THREE.MeshStandardMaterial({ color: glassColorOut, transparent: true, opacity: glassOpacityOut, roughness: 0.15 })
     : doorMat;
 
-  const sbDoor = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.54, 0.02), sbDoorMat);
+  const sbDoor = createRoundedBox(0.9, 0.54, 0.02, sbDoorMat, 0.025, 3);
   sbDoor.position.set(-0.46, 0.33, 0.22);
   sbDoor.castShadow = true;
   sideboardGroup.add(sbDoor);
@@ -1490,14 +1814,8 @@ export const buildOfficeFurniture = (
   const oPalette = getStylePalette(style);
 
   // Style-specific wood/matte materials for Office Desk Top
-  const deskMat = new THREE.MeshStandardMaterial({ 
-    color: oPalette.woodColor, 
-    roughness: oPalette.woodRoughness || 0.6 
-  });
-  const drawerMat = new THREE.MeshStandardMaterial({ 
-    color: oPalette.cabinetColor, 
-    roughness: 0.7 
-  });
+  const deskMat = createWoodMaterial(oPalette.woodColor, oPalette.woodRoughness || 0.6, 0.08);
+  const drawerMat = createWoodMaterial(oPalette.cabinetColor, 0.7, 0.06);
   const frameMat = new THREE.MeshStandardMaterial({ 
     color: oPalette.metalColor, 
     metalness: oPalette.metalMetalness, 
@@ -1510,7 +1828,7 @@ export const buildOfficeFurniture = (
   });
 
   // 1. Desk Top plate
-  const topMesh = new THREE.Mesh(new THREE.BoxGeometry(1.65, 0.048, 0.8), deskMat);
+  const topMesh = createRoundedBox(1.65, 0.048, 0.8, deskMat, 0.035, 3);
   topMesh.position.y = 0.74;
   topMesh.castShadow = true;
   topMesh.receiveShadow = true;
@@ -1518,15 +1836,15 @@ export const buildOfficeFurniture = (
 
   // Soft leather desk mat / writing blotter
   const padColor = oPalette.metalColor === 0x1a1a1a ? 0x2d3238 : 0x242424;
-  const padMat = new THREE.MeshStandardMaterial({ color: padColor, roughness: 0.85 });
-  const deskPad = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.005, 0.46), padMat);
+  const padMat = createLeatherMaterial(padColor, 0.85, 0.02);
+  const deskPad = createRoundedBox(0.85, 0.005, 0.46, padMat, 0.018, 3);
   deskPad.position.set(-0.05, 0.766, 0.04);
   deskPad.receiveShadow = true;
   deskGroup.add(deskPad);
 
   // 2. Modern desk cabinet drawer unit on left side
   const drawerUnit = new THREE.Group();
-  const drawerSB = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.54, 0.72), drawerMat);
+  const drawerSB = createRoundedBox(0.38, 0.54, 0.72, drawerMat, 0.03, 3);
   drawerSB.position.set(0.5, 0.31, 0);
   drawerSB.castShadow = true;
   drawerUnit.add(drawerSB);
@@ -1546,18 +1864,19 @@ export const buildOfficeFurniture = (
   deskGroup.add(drawerUnit);
 
   // Legs right side (Premium angled architectural slab or slender pipelegs depending on style)
-  const legGate = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.71, 0.72), frameMat);
+  const legGate = createRoundedBox(0.048, 0.71, 0.72, frameMat, 0.018, 2);
   legGate.position.set(-0.64, 0.355, 0);
   legGate.castShadow = true;
   deskGroup.add(legGate);
 
   // 3. Realistic Ergonomic Office Chair
   const chairG = new THREE.Group();
-  const chairUph = new THREE.MeshStandardMaterial({ 
-    color: oPalette.couchColor, 
-    roughness: oPalette.couchRoughness,
-    metalness: oPalette.couchMetalness || 0.0
-  });
+  const chairUph = createFabricMaterial(
+    oPalette.couchColor,
+    oPalette.couchRoughness,
+    oPalette.couchMetalness || 0.0,
+    `office-chair-${style}`
+  );
 
   // 5-Point functional caster base star wheels (highly detailed)
   const casterBaseCenter = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.04, 10), frameMat);
@@ -1596,13 +1915,13 @@ export const buildOfficeFurniture = (
   chairG.add(hydraulic);
 
   // Curved ergonomic seat cushion
-  const cushion = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.05, 0.46), chairUph);
+  const cushion = createRoundedBox(0.46, 0.05, 0.46, chairUph, 0.045, 4);
   cushion.position.set(0, 0.41, -0.42);
   cushion.castShadow = true;
   chairG.add(cushion);
 
   // Contoured breathable mesh backrest
-  const meshBack = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.44, 0.04), chairUph);
+  const meshBack = createRoundedBox(0.44, 0.44, 0.04, chairUph, 0.045, 4);
   meshBack.position.set(0, 0.65, -0.62);
   meshBack.rotation.x = -0.05;
   meshBack.castShadow = true;
@@ -1610,12 +1929,12 @@ export const buildOfficeFurniture = (
 
   // Modern curved steel armrests
   const armrestL = new THREE.Group();
-  const armPost = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.16, 0.02), frameMat);
+  const armPost = createRoundedBox(0.02, 0.16, 0.02, frameMat, 0.008, 2);
   armPost.position.set(-0.24, 0.51, -0.42);
   armPost.castShadow = true;
   armrestL.add(armPost);
 
-  const armPad = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.015, 0.28), wheelMat);
+  const armPad = createRoundedBox(0.04, 0.015, 0.28, wheelMat, 0.012, 3);
   armPad.position.set(-0.24, 0.59, -0.38);
   armPad.castShadow = true;
   armrestL.add(armPad);
@@ -1632,27 +1951,27 @@ export const buildOfficeFurniture = (
 
   // 4. Laptop on desk (Reoriented to face the chair at -0.42 Z)
   const silverMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.85, roughness: 0.2 });
-  const laptopBase = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.012, 0.20), silverMat);
+  const laptopBase = createRoundedBox(0.3, 0.012, 0.20, silverMat, 0.012, 2);
   laptopBase.position.set(-0.05, 0.771, -0.04); // Closer to chair
   laptopBase.castShadow = true;
   deskGroup.add(laptopBase);
 
   // Dark matte keyboard keys block
   const darkKeysMat = new THREE.MeshStandardMaterial({ color: 0x222225, roughness: 0.8 });
-  const keyboardKeys = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.002, 0.09), darkKeysMat);
+  const keyboardKeys = createRoundedBox(0.26, 0.002, 0.09, darkKeysMat, 0.005, 2);
   keyboardKeys.position.set(-0.05, 0.777, -0.02); // Centered towards the hinge
   keyboardKeys.receiveShadow = true;
   deskGroup.add(keyboardKeys);
 
   // Sleek glass trackpad
   const trackpadMat = new THREE.MeshStandardMaterial({ color: 0x444448, roughness: 0.4, metalness: 0.1 });
-  const trackpad = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.002, 0.04), trackpadMat);
+  const trackpad = createRoundedBox(0.07, 0.002, 0.04, trackpadMat, 0.004, 2);
   trackpad.position.set(-0.05, 0.777, -0.09); // Near palm edge
   trackpad.receiveShadow = true;
   deskGroup.add(trackpad);
 
   // Screen housing slanted backwards (tilt towards positive Z further from user)
-  const laptopScreen = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.20, 0.008), silverMat);
+  const laptopScreen = createRoundedBox(0.3, 0.20, 0.008, silverMat, 0.01, 2);
   laptopScreen.position.set(-0.05, 0.86, 0.06); // Further back from user
   laptopScreen.rotation.x = -0.24; // slanted back
   laptopScreen.castShadow = true;
@@ -1668,7 +1987,7 @@ export const buildOfficeFurniture = (
   deskGroup.add(screenGlowingMesh);
 
   // 5. Office Desk Accessories (Naturally oriented to user)
-  // Ceramic coffee mug (Cylinder + thin handle ring placed on right, facing user)
+  // Ceramic coffee mug with side-mounted C handle and visible coffee surface
   const mugBaseGeo = new THREE.CylinderGeometry(0.034, 0.034, 0.08, 12);
   const mugMat = new THREE.MeshStandardMaterial({ color: 0xdd4b39, roughness: 0.15 }); // bold red ceramic mug
   const mug = new THREE.Mesh(mugBaseGeo, mugMat);
@@ -1676,11 +1995,29 @@ export const buildOfficeFurniture = (
   mug.castShadow = true;
   deskGroup.add(mug);
 
-  const handleGeo = new THREE.TorusGeometry(0.024, 0.006, 8, 16);
+  const coffeeMat = new THREE.MeshStandardMaterial({ color: 0x2a170f, roughness: 0.48 });
+  const coffeeSurface = new THREE.Mesh(new THREE.CylinderGeometry(0.029, 0.029, 0.003, 18), coffeeMat);
+  coffeeSurface.position.set(0.32, 0.842, 0.08);
+  deskGroup.add(coffeeSurface);
+
+  const handleGeo = new THREE.TorusGeometry(0.034, 0.0048, 8, 18, Math.PI * 1.45);
   const mugHandle = new THREE.Mesh(handleGeo, mugMat);
-  mugHandle.position.set(0.295, 0.801, 0.054); // facing southwest towards hand
-  mugHandle.rotation.y = Math.PI / 4;
+  mugHandle.position.set(0.358, 0.803, 0.08);
+  mugHandle.rotation.y = Math.PI / 2;
+  mugHandle.rotation.z = -Math.PI / 10;
+  mugHandle.castShadow = true;
   deskGroup.add(mugHandle);
+
+  const handleJoinGeo = new THREE.CylinderGeometry(0.005, 0.005, 0.034, 8);
+  const handleJoinTop = new THREE.Mesh(handleJoinGeo, mugMat);
+  handleJoinTop.rotation.z = Math.PI / 2;
+  handleJoinTop.position.set(0.345, 0.826, 0.08);
+  handleJoinTop.castShadow = true;
+  deskGroup.add(handleJoinTop);
+
+  const handleJoinBottom = handleJoinTop.clone();
+  handleJoinBottom.position.y = 0.78;
+  deskGroup.add(handleJoinBottom);
 
   // Modern pen/pencil container cup with pencils inside
   const cupMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.82, roughness: 0.2 });
@@ -1759,42 +2096,42 @@ export const buildOfficeFurniture = (
 
   // Wood backing material and frame materials (matching style palette or warm oak/walnut)
   const palette = getStylePalette(style);
-  const woodBC = new THREE.MeshStandardMaterial({ color: palette.woodColor, roughness: palette.woodRoughness });
-  const backPanelBC = new THREE.MeshStandardMaterial({ color: Math.max(0, palette.woodColor - 0x111111), roughness: Math.min(1, palette.woodRoughness + 0.1) });
+  const woodBC = createWoodMaterial(palette.woodColor, palette.woodRoughness, 0.08);
+  const backPanelBC = createWoodMaterial(Math.max(0, palette.woodColor - 0x111111), Math.min(1, palette.woodRoughness + 0.1), 0.05);
 
   // 1. Thin backing board at the absolute rear
-  const backboard = new THREE.Mesh(new THREE.BoxGeometry(2.14, 1.76, 0.015), backPanelBC);
+  const backboard = createRoundedBox(2.14, 1.76, 0.015, backPanelBC, 0.012, 2);
   backboard.position.set(0, 0.9, -0.15);
   backboard.receiveShadow = true;
   bookcaseGroup.add(backboard);
 
   // 2. Heavy outer sides and frame rims
-  const leftSide = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.8, 0.32), woodBC);
+  const leftSide = createRoundedBox(0.04, 1.8, 0.32, woodBC, 0.018, 2);
   leftSide.position.set(-1.08, 0.9, 0);
   leftSide.castShadow = true;
   leftSide.receiveShadow = true;
   bookcaseGroup.add(leftSide);
 
-  const rightSide = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.8, 0.32), woodBC);
+  const rightSide = createRoundedBox(0.04, 1.8, 0.32, woodBC, 0.018, 2);
   rightSide.position.set(1.08, 0.9, 0);
   rightSide.castShadow = true;
   rightSide.receiveShadow = true;
   bookcaseGroup.add(rightSide);
 
-  const topCover = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.04, 0.32), woodBC);
+  const topCover = createRoundedBox(2.2, 0.04, 0.32, woodBC, 0.018, 2);
   topCover.position.set(0, 1.78, 0);
   topCover.castShadow = true;
   topCover.receiveShadow = true;
   bookcaseGroup.add(topCover);
 
-  const bottomPlinth = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.06, 0.32), woodBC);
+  const bottomPlinth = createRoundedBox(2.2, 0.06, 0.32, woodBC, 0.018, 2);
   bottomPlinth.position.set(0, 0.03, 0);
   bottomPlinth.castShadow = true;
   bottomPlinth.receiveShadow = true;
   bookcaseGroup.add(bottomPlinth);
 
   // 3. Two elegant vertical support partition dividers to organize the cabinet into three distinct columns
-  const dividerLeft = new THREE.Mesh(new THREE.BoxGeometry(0.024, 1.71, 0.30), woodBC);
+  const dividerLeft = createRoundedBox(0.024, 1.71, 0.30, woodBC, 0.012, 2);
   dividerLeft.position.set(-0.36, 0.885, -0.01);
   dividerLeft.castShadow = true;
   dividerLeft.receiveShadow = true;
@@ -1806,21 +2143,20 @@ export const buildOfficeFurniture = (
 
   // 4. Horizontal storage shelves distributed across columns
   const shelfHeights = [0.44, 0.88, 1.32];
-  const shelfLeftGeo = new THREE.BoxGeometry(0.68, 0.02, 0.30);
   shelfHeights.forEach(shY => {
-    const sL = new THREE.Mesh(shelfLeftGeo, woodBC);
+    const sL = createRoundedBox(0.68, 0.02, 0.30, woodBC, 0.012, 2);
     sL.position.set(-0.72, shY, -0.01);
     sL.castShadow = true;
     sL.receiveShadow = true;
     bookcaseGroup.add(sL);
 
-    const sC = new THREE.Mesh(new THREE.BoxGeometry(0.70, 0.02, 0.30), woodBC);
+    const sC = createRoundedBox(0.70, 0.02, 0.30, woodBC, 0.012, 2);
     sC.position.set(0, shY, -0.01);
     sC.castShadow = true;
     sC.receiveShadow = true;
     bookcaseGroup.add(sC);
 
-    const sR = new THREE.Mesh(shelfLeftGeo, woodBC);
+    const sR = createRoundedBox(0.68, 0.02, 0.30, woodBC, 0.012, 2);
     sR.position.set(0.72, shY, -0.01);
     sR.castShadow = true;
     sR.receiveShadow = true;
@@ -2001,16 +2337,16 @@ export const buildBathroomFurniture = (
   const vanityGroup = new THREE.Group();
   vanityGroup.name = 'vanity';
 
-  const stoneMat = new THREE.MeshStandardMaterial({ color: 0xd9d9d9, roughness: 0.1 });
-  const drawerMat = new THREE.MeshStandardMaterial({ color: 0x7c614b, roughness: 0.6 });
+  const stoneMat = createStoneMaterial(0xd9d9d9, 0.1, 0.05);
+  const drawerMat = createWoodMaterial(0x7c614b, 0.6, 0.08);
 
-  const vanityBody = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.44, 0.48), stoneMat);
+  const vanityBody = createRoundedBox(1.5, 0.44, 0.48, stoneMat, 0.045, 3);
   vanityBody.position.y = 0.58;
   vanityBody.castShadow = true;
   vanityBody.receiveShadow = true;
   vanityGroup.add(vanityBody);
 
-  const drawers = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.26, 0.44), drawerMat);
+  const drawers = createRoundedBox(1.48, 0.26, 0.44, drawerMat, 0.035, 3);
   drawers.position.set(0, 0.28, 0.01);
   vanityGroup.add(drawers);
 
@@ -2071,7 +2407,7 @@ export const buildBathroomFurniture = (
   toiletGroup.name = 'toilet';
 
   // Smart toilet back wall tank housing/base module (sleek & geometric)
-  const backPanel = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.55, 0.16), ceramicMat);
+  const backPanel = createRoundedBox(0.44, 0.55, 0.16, ceramicMat, 0.045, 4);
   backPanel.position.set(0, 0.275, -0.18);
   backPanel.castShadow = true;
   toiletGroup.add(backPanel);
@@ -2101,7 +2437,7 @@ export const buildBathroomFurniture = (
 
   // Modern smart subtle blue ambient indicator nightlight glow bar
   const nightlightGlow = new THREE.Mesh(
-    new THREE.BoxGeometry(0.16, 0.01, 0.005),
+    roundedBoxGeo(0.16, 0.01, 0.005, 0.004, 2),
     new THREE.MeshBasicMaterial({ color: 0x4488ff })
   );
   nightlightGlow.position.set(0, 0.41, -0.098);
@@ -2133,15 +2469,12 @@ export const buildKitchenFurniture = (
 
   const palette = getStylePalette(style);
 
-  const counterBaseMat = new THREE.MeshStandardMaterial({
-    color: palette.cabinetColor,
-    roughness: 0.6
-  });
-  const slabQuartzMat = new THREE.MeshStandardMaterial({
-    color: palette.countertopColor,
-    roughness: palette.countertopRoughness,
-    metalness: palette.countertopMetalness
-  });
+  const counterBaseMat = createWoodMaterial(palette.cabinetColor, 0.6, 0.08);
+  const slabQuartzMat = createStoneMaterial(
+    palette.countertopColor,
+    palette.countertopRoughness,
+    palette.countertopMetalness
+  );
   const blackGlassMat = new THREE.MeshStandardMaterial({ color: 0x0c0c0c, roughness: 0.08 });
   const stainlessSteelMat = new THREE.MeshStandardMaterial({
     color: palette.metalColor,
@@ -2162,24 +2495,24 @@ export const buildKitchenFurniture = (
   });
 
   // Main Counter cabinetry line (3m length)
-  const counter = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.85, 0.64), counterBaseMat);
+  const counter = createRoundedBox(3.0, 0.85, 0.64, counterBaseMat, 0.055, 3);
   counter.position.y = 0.425;
   counter.castShadow = true;
   counter.receiveShadow = true;
   cabinetGroup.add(counter);
 
-  const slabTop = new THREE.Mesh(new THREE.BoxGeometry(3.02, 0.05, 0.66), slabQuartzMat);
+  const slabTop = createRoundedBox(3.02, 0.05, 0.66, slabQuartzMat, 0.04, 4);
   slabTop.position.y = 0.875;
   slabTop.castShadow = true;
   cabinetGroup.add(slabTop);
 
   // 1. Black/Metallic Cooktop Frame & Glass
-  const cooktopBase = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.015, 0.44), new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.7, roughness: 0.3 }));
+  const cooktopBase = createRoundedBox(0.76, 0.015, 0.44, new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.7, roughness: 0.3 }), 0.025, 3);
   cooktopBase.position.set(-0.6, 0.905, 0);
   cooktopBase.castShadow = true;
   cabinetGroup.add(cooktopBase);
 
-  const hobGlass = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.005, 0.40), blackGlassMat);
+  const hobGlass = createRoundedBox(0.72, 0.005, 0.40, blackGlassMat, 0.022, 3);
   hobGlass.position.set(-0.6, 0.915, 0);
   cabinetGroup.add(hobGlass);
 
@@ -2202,11 +2535,11 @@ export const buildKitchenFurniture = (
   cabinetGroup.add(burnerCoreL);
 
   // Left burner crossed support grates
-  const grateBarL1 = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.015, 0.02), castIronMat);
+  const grateBarL1 = createRoundedBox(0.22, 0.015, 0.02, castIronMat, 0.008, 2);
   grateBarL1.position.set(-0.76, 0.93, 0);
   cabinetGroup.add(grateBarL1);
 
-  const grateBarL2 = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.015, 0.22), castIronMat);
+  const grateBarL2 = createRoundedBox(0.02, 0.015, 0.22, castIronMat, 0.008, 2);
   grateBarL2.position.set(-0.76, 0.93, 0);
   cabinetGroup.add(grateBarL2);
 
@@ -2225,11 +2558,11 @@ export const buildKitchenFurniture = (
   cabinetGroup.add(burnerCoreR);
 
   // Right burner crossed support grates
-  const grateBarR1 = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.015, 0.02), castIronMat);
+  const grateBarR1 = createRoundedBox(0.22, 0.015, 0.02, castIronMat, 0.008, 2);
   grateBarR1.position.set(-0.44, 0.93, 0);
   cabinetGroup.add(grateBarR1);
 
-  const grateBarR2 = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.015, 0.22), castIronMat);
+  const grateBarR2 = createRoundedBox(0.02, 0.015, 0.22, castIronMat, 0.008, 2);
   grateBarR2.position.set(-0.44, 0.93, 0);
   cabinetGroup.add(grateBarR2);
 
@@ -2242,13 +2575,13 @@ export const buildKitchenFurniture = (
   }
 
   // 2. High-Fidelity 3D Recessed Sink Basin
-  const sinkRim = new THREE.Mesh(new THREE.BoxGeometry(0.70, 0.015, 0.44), silverMetalMat);
+  const sinkRim = createRoundedBox(0.70, 0.015, 0.44, silverMetalMat, 0.025, 3);
   sinkRim.position.set(0.6, 0.905, 0);
   sinkRim.name = 'sink_rim';
   sinkRim.castShadow = true;
   cabinetGroup.add(sinkRim);
 
-  const sinkInnerBasin = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.01, 0.36), sinkMetalMat);
+  const sinkInnerBasin = createRoundedBox(0.62, 0.01, 0.36, sinkMetalMat, 0.025, 3);
   sinkInnerBasin.position.set(0.6, 0.898, 0);
   cabinetGroup.add(sinkInnerBasin);
 
@@ -2293,11 +2626,8 @@ export const buildKitchenFurniture = (
   cabinetGroup.add(faucetLever);
 
   // Upper hanging shelf cupboards
-  const upperMat = new THREE.MeshStandardMaterial({
-    color: palette.woodColor,
-    roughness: palette.woodRoughness
-  });
-  const wallCab = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.65, 0.35), upperMat);
+  const upperMat = createWoodMaterial(palette.woodColor, palette.woodRoughness, 0.08);
+  const wallCab = createRoundedBox(2.3, 0.65, 0.35, upperMat, 0.04, 3);
   wallCab.position.set(-0.35, 1.85, -0.155);
   wallCab.castShadow = true;
   cabinetGroup.add(wallCab);
@@ -2309,7 +2639,7 @@ export const buildKitchenFurniture = (
   pipe.castShadow = true;
   cabinetGroup.add(pipe);
 
-  const hood = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.12, 0.52), rangeMat);
+  const hood = createRoundedBox(0.85, 0.12, 0.52, rangeMat, 0.035, 3);
   hood.position.set(-0.6, 1.15, -0.05);
   cabinetGroup.add(hood);
 
@@ -2425,38 +2755,38 @@ export const buildKitchenFurniture = (
   const screenGlowMat = new THREE.MeshBasicMaterial({ color: 0x3ac5f5 }); // digital panel cyan glow
 
   // 1. Back/Side Chassis - core box (0.88 wide, 1.83 high, 0.68 deep)
-  const fridgeChassis = new THREE.Mesh(new THREE.BoxGeometry(0.88, 1.83, 0.68), bodyMat);
+  const fridgeChassis = createRoundedBox(0.88, 1.83, 0.68, bodyMat, 0.045, 3);
   fridgeChassis.position.set(0, 0.915, -0.01);
   fridgeChassis.castShadow = true;
   fridgeChassis.receiveShadow = true;
   fridgeGroup.add(fridgeChassis);
 
   // 2. Freezer Bottom Drawer (lower 40% height, from 0 to 0.63)
-  const freezerDoor = new THREE.Mesh(new THREE.BoxGeometry(0.89, 0.61, 0.03), steelMat);
+  const freezerDoor = createRoundedBox(0.89, 0.61, 0.03, steelMat, 0.025, 3);
   freezerDoor.position.set(0, 0.315, 0.345);
   freezerDoor.castShadow = true;
   fridgeGroup.add(freezerDoor);
 
   // Wide horizontal heavy handle bar for the freezer drawer
-  const handFreezer = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.024, 0.02), chromeMat);
+  const handFreezer = createRoundedBox(0.58, 0.024, 0.02, chromeMat, 0.01, 2);
   handFreezer.position.set(0, 0.52, 0.365);
   handFreezer.castShadow = true;
   fridgeGroup.add(handFreezer);
 
   // 3. Upper French doors (Left and Right swing doors)
   // Each door is 0.442 wide, 1.13 high, 0.03 deep, with 0.006 gap between them
-  const leftDoor = new THREE.Mesh(new THREE.BoxGeometry(0.442, 1.13, 0.03), steelMat);
+  const leftDoor = createRoundedBox(0.442, 1.13, 0.03, steelMat, 0.025, 3);
   leftDoor.position.set(-0.224, 1.22, 0.345);
   leftDoor.castShadow = true;
   fridgeGroup.add(leftDoor);
 
-  const rightDoor = new THREE.Mesh(new THREE.BoxGeometry(0.442, 1.13, 0.03), steelMat);
+  const rightDoor = createRoundedBox(0.442, 1.13, 0.03, steelMat, 0.025, 3);
   rightDoor.position.set(0.224, 1.22, 0.345);
   rightDoor.castShadow = true;
   fridgeGroup.add(rightDoor);
 
   // Vertical slim handles for left/right doors
-  const handleL = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.75, 0.02), chromeMat);
+  const handleL = createRoundedBox(0.02, 0.75, 0.02, chromeMat, 0.008, 2);
   handleL.position.set(-0.035, 1.15, 0.365);
   handleL.castShadow = true;
   fridgeGroup.add(handleL);
@@ -2466,11 +2796,11 @@ export const buildKitchenFurniture = (
   fridgeGroup.add(handleR);
 
   // 4. Smart Dispenser Panel recessed on Left Door
-  const dispenserOuter = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.26, 0.005), darkGlassUIMat);
+  const dispenserOuter = createRoundedBox(0.18, 0.26, 0.005, darkGlassUIMat, 0.012, 2);
   dispenserOuter.position.set(-0.224, 1.34, 0.361);
   fridgeGroup.add(dispenserOuter);
 
-  const dispenserNiche = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.16, 0.015), new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8 }));
+  const dispenserNiche = createRoundedBox(0.12, 0.16, 0.015, new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8 }), 0.012, 2);
   dispenserNiche.position.set(-0.224, 1.31, 0.363);
   fridgeGroup.add(dispenserNiche);
 
@@ -2484,7 +2814,7 @@ export const buildKitchenFurniture = (
   fridgeGroup.add(dispenserLight);
 
   // 5. Smart Digital Screen / Control Panel on Right Door
-  const screenPad = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.32, 0.005), darkGlassUIMat);
+  const screenPad = createRoundedBox(0.18, 0.32, 0.005, darkGlassUIMat, 0.012, 2);
   screenPad.position.set(0.224, 1.34, 0.361);
   fridgeGroup.add(screenPad);
 
@@ -2532,26 +2862,26 @@ export const buildStudioFurniture = (
   const bedGroup = new THREE.Group();
   bedGroup.name = 'sofa_or_bed';
 
-  const woodBedMat = new THREE.MeshStandardMaterial({ color: 0x76533c, roughness: 0.5 });
-  const mattressMat = new THREE.MeshStandardMaterial({ color: 0xf5f5f5, roughness: 0.95 });
+  const woodBedMat = createWoodMaterial(0x76533c, 0.5, 0.08);
+  const mattressMat = createFabricMaterial(0xf5f5f5, 0.95, 0, 'studio-mattress');
 
   const isDouble = bedType === 'double';
   const width = isDouble ? 1.95 : 1.35;
   const mattWidth = isDouble ? 1.88 : 1.28;
 
-  const frame = new THREE.Mesh(new THREE.BoxGeometry(width, 0.3, 1.95), woodBedMat);
+  const frame = createRoundedBox(width, 0.3, 1.95, woodBedMat, 0.055, 3);
   frame.position.y = 0.15;
   frame.castShadow = true;
   frame.receiveShadow = true;
   bedGroup.add(frame);
 
-  const mattress = new THREE.Mesh(new THREE.BoxGeometry(mattWidth, 0.26, 1.88), mattressMat);
+  const mattress = createRoundedBox(mattWidth, 0.26, 1.88, mattressMat, 0.085, 5);
   mattress.position.set(0, 0.28, 0.025);
   mattress.castShadow = true;
   bedGroup.add(mattress);
 
   if (isDouble) {
-    const pillowL = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.12, 0.45), mattressMat);
+    const pillowL = createRoundedBox(0.75, 0.12, 0.45, mattressMat, 0.065, 5);
     pillowL.position.set(-0.43, 0.44, -0.68);
     pillowL.rotation.x = Math.PI / 16;
     pillowL.castShadow = true;
@@ -2561,7 +2891,7 @@ export const buildStudioFurniture = (
     pillowR.position.x = 0.43;
     bedGroup.add(pillowR);
   } else {
-    const pillow = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.12, 0.45), mattressMat);
+    const pillow = createRoundedBox(0.9, 0.12, 0.45, mattressMat, 0.065, 5);
     pillow.position.set(0, 0.44, -0.68);
     pillow.rotation.x = Math.PI / 16;
     pillow.castShadow = true;
@@ -2578,11 +2908,7 @@ export const buildStudioFurniture = (
   deskGroup.name = 'studio_sofa';
 
   const deskPalette = getStylePalette(style);
-  const woodMat = new THREE.MeshStandardMaterial({
-    color: deskPalette.woodColor || 0xb88e6b,
-    roughness: 0.6,
-    metalness: 0.1
-  });
+  const woodMat = createWoodMaterial(deskPalette.woodColor || 0xb88e6b, 0.6, 0.1);
   const darkMetal = new THREE.MeshStandardMaterial({
     color: deskPalette.metalColor || 0x222225,
     metalness: deskPalette.metalMetalness !== undefined ? deskPalette.metalMetalness : 0.8,
@@ -2590,7 +2916,7 @@ export const buildStudioFurniture = (
   });
 
   // Desk top
-  const deskTop = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.04, 0.6), woodMat);
+  const deskTop = createRoundedBox(1.25, 0.04, 0.6, woodMat, 0.03, 3);
   deskTop.position.set(0, 0.74, 0);
   deskTop.castShadow = true;
   deskTop.receiveShadow = true;
@@ -2634,17 +2960,14 @@ export const buildStudioFurniture = (
   chairSub.position.set(0, 0, 0.45); // placed directly in front of the desk
   chairSub.rotation.y = Math.PI / 16; // slightly rotated naturally
 
-  const fabricMat = new THREE.MeshStandardMaterial({
-    color: deskPalette.couchColor || 0x6e7e85,
-    roughness: 0.8
-  });
+  const fabricMat = createFabricMaterial(deskPalette.couchColor || 0x6e7e85, 0.8, 0, `studio-chair-${style}`);
 
-  const seatCushion = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.42), fabricMat);
+  const seatCushion = createRoundedBox(0.42, 0.05, 0.42, fabricMat, 0.04, 4);
   seatCushion.position.y = 0.44;
   seatCushion.castShadow = true;
   chairSub.add(seatCushion);
 
-  const chairBack = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.45, 0.05), fabricMat);
+  const chairBack = createRoundedBox(0.42, 0.45, 0.05, fabricMat, 0.04, 4);
   chairBack.position.set(0, 0.68, 0.2);
   chairBack.castShadow = true;
   chairSub.add(chairBack);
@@ -2654,7 +2977,7 @@ export const buildStudioFurniture = (
   rod.position.y = 0.315;
   chairSub.add(rod);
 
-  const baseLine = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.03, 0.03), darkMetal);
+  const baseLine = createRoundedBox(0.38, 0.03, 0.03, darkMetal, 0.012, 2);
   baseLine.position.y = 0.21;
   chairSub.add(baseLine);
 
@@ -2673,11 +2996,11 @@ export const buildStudioFurniture = (
   const wardrobeGroup = new THREE.Group();
   wardrobeGroup.name = 'coffee_table';
 
-  const woodWrdMat = new THREE.MeshStandardMaterial({ color: 0x4d3f35, roughness: 0.65 });
+  const woodWrdMat = createWoodMaterial(0x4d3f35, 0.65, 0.08);
   const trimGoldMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.85, roughness: 0.2 });
 
   // Main Closet cabinet body
-  const body = new THREE.Mesh(new THREE.BoxGeometry(1.05, 1.95, 0.58), woodWrdMat);
+  const body = createRoundedBox(1.05, 1.95, 0.58, woodWrdMat, 0.035, 3);
   body.position.y = 0.975;
   body.castShadow = true;
   body.receiveShadow = true;
@@ -2698,7 +3021,7 @@ export const buildStudioFurniture = (
   wardrobeGroup.add(handleR);
 
   // Wardrobe top molding
-  const topMolding = new THREE.Mesh(new THREE.BoxGeometry(1.09, 0.04, 0.62), woodWrdMat);
+  const topMolding = createRoundedBox(1.09, 0.04, 0.62, woodWrdMat, 0.02, 2);
   topMolding.position.y = 1.965;
   topMolding.castShadow = true;
   wardrobeGroup.add(topMolding);

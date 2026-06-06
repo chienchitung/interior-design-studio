@@ -89,6 +89,47 @@ const fileToPart = async (file: File): Promise<{ inlineData: { data: string; mim
   return { inlineData: { data, mimeType } };
 };
 
+const readFileAsDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+const readFileAsText = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(String(reader.result || ''));
+    reader.onerror = reject;
+    reader.readAsText(file);
+  });
+
+const isPlainTextFile = (file: File) =>
+  file.type.startsWith('text/') ||
+  /\.(csv|txt|md|rtf)$/i.test(file.name);
+
+const formatAttachmentSummary = (files: File[]) =>
+  files
+    .map((file, index) => `${index + 1}. ${file.name}（${file.type || '未知格式'}，${Math.round(file.size / 1024)}KB）`)
+    .join('\n');
+
+const fileToChatPart = async (file: File): Promise<{ inlineData: { data: string; mimeType: string } } | { text: string }> => {
+  if (file.type.startsWith('image/')) return fileToPart(file);
+
+  if (isPlainTextFile(file)) {
+    const raw = await readFileAsText(file);
+    return {
+      text: `【附件內容：${file.name}】\n${raw.slice(0, 20000)}${raw.length > 20000 ? '\n（內容過長，已截取前 20000 字元）' : ''}`,
+    };
+  }
+
+  const dataUrl = await readFileAsDataUrl(file);
+  const [header, data] = dataUrl.split(',');
+  const mimeType = file.type || header?.match(/data:(.*?);base64/)?.[1] || 'application/octet-stream';
+  return { inlineData: { data, mimeType } };
+};
+
 const imageSourceToPart = async (imageSource: string): Promise<{ inlineData: { data: string; mimeType: string } }> => {
   let dataUrl = imageSource;
 
@@ -618,7 +659,7 @@ export const summarizeHistory = async (
 export const chatWithDesigner = async (
   history: ChatMessage[],
   userMessage: string,
-  images?: File[],
+  attachments?: File[],
   context?: DesignContext,
   rooms?: RoomInfo[],
   summary?: string
@@ -628,9 +669,13 @@ export const chatWithDesigner = async (
 
     const userParts: any[] = [];
 
-    if (images && images.length > 0) {
-      for (const file of images) {
-        const part = await fileToPart(file);
+    if (attachments && attachments.length > 0) {
+      userParts.push({
+        text: `【屋主上傳的參考資料】\n${formatAttachmentSummary(attachments)}\n請把這些資料視為專案上下文。若是報價單、需求表或規格資料，請優先提取預算、品項、尺寸、材質、限制、已選設備與需要追問的不確定處。`,
+      });
+
+      for (const file of attachments) {
+        const part = await fileToChatPart(file);
         userParts.push(part);
       }
     }

@@ -1100,34 +1100,6 @@ const App: React.FC = () => {
 
 	          {/* Action Section - Inline & Focused (No longer a full width footer) */}
 	          <div className="pt-6 border-t border-neutral-800/80 flex flex-col items-center justify-center">
-            <div className="w-full mb-4 bg-neutral-950/70 border border-neutral-800 rounded-xl p-3 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-bold text-neutral-300">3. 產生第一版方案</span>
-                <span className={`text-[9px] font-bold rounded-full px-2 py-0.5 border ${
-                  hasSpaceReference
-                    ? 'text-emerald-400 bg-emerald-950/30 border-emerald-900/50'
-                    : 'text-amber-400 bg-amber-950/30 border-amber-900/50'
-                }`}>
-                  {hasSpaceReference ? '可以生成' : '還缺現況照片'}
-                </span>
-              </div>
-              <div className="grid grid-cols-3 gap-1.5">
-                {setupChecklist.map(item => (
-                  <div key={item.label} className={`rounded-lg border px-2 py-1.5 ${
-                    item.done ? 'border-emerald-900/50 bg-emerald-950/20' : 'border-neutral-800 bg-neutral-900'
-                  }`}>
-                    <div className="flex items-center gap-1">
-                      <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] ${
-                        item.done ? 'bg-emerald-500 text-black' : 'bg-neutral-800 text-neutral-600'
-                      }`}>
-                        {item.done ? '✓' : ''}
-                      </span>
-                      <span className="text-[9px] text-neutral-400 truncate">{item.label}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
 	            {error && (
 	              <div className="w-full mb-4 p-3 bg-red-950/40 border border-red-900/50 rounded-lg text-xs text-red-100">
 	                {error}
@@ -1141,10 +1113,7 @@ const App: React.FC = () => {
 	            >
 	              {isGenerating ? '生成渲染中...' : '產生我的設計方案'}
 	            </Button>
-	            <p className="text-[10px] text-neutral-500 mt-2 text-center">
-	              生成後會自動附上版本紀錄與好不好住檢查
-	            </p>
-	          </div>
+          </div>
         </div>
       </aside>
 

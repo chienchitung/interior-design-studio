@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { DESIGN_STYLE_LABELS, DesignStyle, RoomType } from '../types';
 import { Armchair, Camera, Sun, Moon, RotateCcw, Box, HelpCircle, Palette, Eye, ArrowRightLeft, Move, Trash2, CheckCircle2, Sliders, Download, Info } from 'lucide-react';
 import {
@@ -43,6 +44,354 @@ const WALL_COLORS = [
   { id: 'slate', name: '現代工業岩石灰 (Navy Slate)', color: 0x363d4a },
   { id: 'beige', name: '侘寂沙丘暖褐 (Wabi Beige)', color: 0xd2b48c }
 ];
+
+const createViewerRoundedBox = (
+  width: number,
+  height: number,
+  depth: number,
+  material: THREE.Material | THREE.Material[],
+  radius: number = 0.035,
+  segments: number = 3
+): THREE.Mesh => {
+  const safeRadius = Math.max(0.001, Math.min(radius, width * 0.45, height * 0.45, depth * 0.45));
+  return new THREE.Mesh(new RoundedBoxGeometry(width, height, depth, segments, safeRadius), material);
+};
+
+const blendViewerHexColor = (source: number, target: number, amount: number): number => {
+  const sr = (source >> 16) & 255;
+  const sg = (source >> 8) & 255;
+  const sb = source & 255;
+  const tr = (target >> 16) & 255;
+  const tg = (target >> 8) & 255;
+  const tb = target & 255;
+  const mix = (a: number, b: number) => Math.round(a + (b - a) * amount);
+  return (mix(sr, tr) << 16) | (mix(sg, tg) << 8) | mix(sb, tb);
+};
+
+const createViewerSoftSquarePillowBody = (
+  width: number,
+  height: number,
+  depth: number,
+  material: THREE.Material
+): THREE.Mesh => {
+  const bodyMaterial = material.clone();
+  bodyMaterial.side = THREE.DoubleSide;
+  const body = createViewerRoundedBox(width, height, depth, bodyMaterial, 0.035, 5);
+  body.geometry.computeVertexNormals();
+  return body;
+};
+
+const createViewerPillowPipe = (length: number, axis: 'x' | 'y', material: THREE.Material): THREE.Mesh => {
+  const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.0075, 0.0075, length, 10), material);
+  if (axis === 'x') pipe.rotation.z = Math.PI / 2;
+  return pipe;
+};
+
+type ViewerPillowPattern = 'plain' | 'border' | 'center_band' | 'twin_stripe' | 'woven_cross';
+
+interface ViewerPillowSpec {
+  color: number;
+  accentColor: number;
+  pattern: ViewerPillowPattern;
+}
+
+const getAccentCushionSpecs = (style: DesignStyle): ViewerPillowSpec[] => {
+  switch (style) {
+    case DesignStyle.MODERN:
+      return [
+        { color: 0xf0f0ec, accentColor: 0x161616, pattern: 'border' },
+        { color: 0x53606b, accentColor: 0xe5e2dc, pattern: 'twin_stripe' },
+        { color: 0xb9b7b0, accentColor: 0x2d3238, pattern: 'center_band' }
+      ];
+    case DesignStyle.SCANDINAVIAN:
+      return [
+        { color: 0xb5c3d6, accentColor: 0xf4eadc, pattern: 'twin_stripe' },
+        { color: 0x9ab0a3, accentColor: 0xe8cfb2, pattern: 'border' },
+        { color: 0xf0e7d6, accentColor: 0x778ca3, pattern: 'center_band' }
+      ];
+    case DesignStyle.MID_CENTURY_MODERN:
+      return [
+        { color: 0xe0b543, accentColor: 0x0a5f6b, pattern: 'center_band' },
+        { color: 0xd76c49, accentColor: 0xf2df9a, pattern: 'twin_stripe' },
+        { color: 0xf2df9a, accentColor: 0x0f6a72, pattern: 'border' }
+      ];
+    case DesignStyle.LUXURY:
+      return [
+        { color: 0x101010, accentColor: 0xd4af37, pattern: 'border' },
+        { color: 0xd5b456, accentColor: 0x0d2b1f, pattern: 'center_band' },
+        { color: 0xf4d36f, accentColor: 0x17382c, pattern: 'twin_stripe' }
+      ];
+    case DesignStyle.BOHEMIAN:
+      return [
+        { color: 0xc6643b, accentColor: 0xf0b247, pattern: 'woven_cross' },
+        { color: 0x245d57, accentColor: 0xf3dfbc, pattern: 'border' },
+        { color: 0xe78d41, accentColor: 0x8b2f24, pattern: 'twin_stripe' }
+      ];
+    case DesignStyle.JAPANDI:
+      return [
+        { color: 0xd8d0c4, accentColor: 0x8b857f, pattern: 'center_band' },
+        { color: 0x9b9187, accentColor: 0xefe8dc, pattern: 'plain' },
+        { color: 0xc8c0b4, accentColor: 0x5f5a54, pattern: 'border' }
+      ];
+    case DesignStyle.COASTAL:
+      return [
+        { color: 0xf7f8f4, accentColor: 0x2e5f82, pattern: 'twin_stripe' },
+        { color: 0xa9c9d6, accentColor: 0xffffff, pattern: 'border' },
+        { color: 0x6e93aa, accentColor: 0xf7f8f4, pattern: 'center_band' }
+      ];
+    case DesignStyle.INDUSTRIAL:
+      return [
+        { color: 0x30343a, accentColor: 0xb46a3c, pattern: 'center_band' },
+        { color: 0x5c4a3e, accentColor: 0x1c1e22, pattern: 'border' },
+        { color: 0x6f6a63, accentColor: 0x2d3436, pattern: 'twin_stripe' }
+      ];
+    default:
+      return [
+        { color: 0xd69a8b, accentColor: 0xf4dfd8, pattern: 'center_band' },
+        { color: 0x8ba6d6, accentColor: 0xffffff, pattern: 'twin_stripe' },
+        { color: 0x93b599, accentColor: 0xf5e8cb, pattern: 'border' }
+      ];
+  }
+};
+
+const createViewerThrowPillow = (spec: ViewerPillowSpec): THREE.Group => {
+  const group = new THREE.Group();
+  const fabricMat = new THREE.MeshStandardMaterial({ color: spec.color, roughness: 0.88, metalness: 0 });
+  const seamMat = new THREE.MeshStandardMaterial({
+    color: blendViewerHexColor(spec.color, spec.color > 0x888888 ? 0x6f665c : 0xffffff, 0.14),
+    roughness: 0.94,
+    metalness: 0
+  });
+  const accentMat = new THREE.MeshStandardMaterial({ color: spec.accentColor, roughness: 0.9, metalness: 0 });
+
+  const body = createViewerSoftSquarePillowBody(0.5, 0.5, 0.15, fabricMat);
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(body);
+
+  const addPiping = (axis: 'x' | 'y', length: number, x: number, y: number) => {
+    const pipe = createViewerPillowPipe(length, axis, seamMat);
+    pipe.position.set(x, y, 0.083);
+    pipe.castShadow = true;
+    group.add(pipe);
+  };
+
+  addPiping('x', 0.41, 0, 0.215);
+  addPiping('x', 0.41, 0, -0.215);
+  addPiping('y', 0.41, -0.215, 0);
+  addPiping('y', 0.41, 0.215, 0);
+
+  [-1, 1].forEach((xDir) => {
+    [-1, 1].forEach((yDir) => {
+      const corner = new THREE.Mesh(new THREE.SphereGeometry(0.015, 10, 8), seamMat);
+      corner.scale.set(1, 0.78, 0.5);
+      corner.position.set(xDir * 0.216, yDir * 0.216, 0.086);
+      corner.castShadow = true;
+      group.add(corner);
+    });
+  });
+
+  const addBand = (width: number, height: number, x: number, y: number, rotZ: number = 0) => {
+    const band = createViewerRoundedBox(width, height, 0.006, accentMat, 0.003, 2);
+    band.position.set(x, y, 0.088);
+    band.rotation.z = rotZ;
+    band.castShadow = true;
+    group.add(band);
+  };
+
+  switch (spec.pattern) {
+    case 'border':
+      addBand(0.25, 0.011, 0, 0.125);
+      addBand(0.25, 0.011, 0, -0.125);
+      addBand(0.011, 0.25, -0.125, 0);
+      addBand(0.011, 0.25, 0.125, 0);
+      break;
+    case 'center_band':
+      addBand(0.27, 0.042, 0, 0);
+      break;
+    case 'twin_stripe':
+      addBand(0.28, 0.011, 0, 0.055);
+      addBand(0.28, 0.011, 0, -0.055);
+      break;
+    case 'woven_cross':
+      addBand(0.28, 0.014, 0, 0, Math.PI / 4);
+      addBand(0.28, 0.014, 0, 0, -Math.PI / 4);
+      break;
+    default:
+      break;
+  }
+
+  return group;
+};
+
+const getAreaRugColor = (style: DesignStyle) => {
+  switch (style) {
+    case DesignStyle.INDUSTRIAL:
+      return 0x2e2e2e;
+    case DesignStyle.BOHEMIAN:
+      return 0xc68e70;
+    case DesignStyle.SCANDINAVIAN:
+      return 0xd7d4cc;
+    case DesignStyle.LUXURY:
+      return 0x112233;
+    case DesignStyle.COASTAL:
+      return 0xdce8ec;
+    case DesignStyle.JAPANDI:
+      return 0xd8d0c4;
+    default:
+      return 0xe5e1d8;
+  }
+};
+
+const getCurtainColor = (style: DesignStyle) => {
+  switch (style) {
+    case DesignStyle.INDUSTRIAL:
+      return 0x53575c;
+    case DesignStyle.LUXURY:
+      return 0x1f342d;
+    case DesignStyle.BOHEMIAN:
+      return 0xd6a06c;
+    case DesignStyle.COASTAL:
+      return 0xf6f8fb;
+    case DesignStyle.SCANDINAVIAN:
+      return 0xdfe5e1;
+    case DesignStyle.JAPANDI:
+      return 0xd7cbbb;
+    default:
+      return 0xdedbd4;
+  }
+};
+
+const getThrowBlanketColors = (style: DesignStyle) => {
+  switch (style) {
+    case DesignStyle.MODERN:
+      return { base: 0xd7d0c4, accent: 0x2e4057 };
+    case DesignStyle.SCANDINAVIAN:
+      return { base: 0xe6dfd2, accent: 0x8fa59a };
+    case DesignStyle.MID_CENTURY_MODERN:
+      return { base: 0xd76c49, accent: 0xe0b543 };
+    case DesignStyle.LUXURY:
+      return { base: 0xe1c16e, accent: 0x17382c };
+    case DesignStyle.BOHEMIAN:
+      return { base: 0xc6643b, accent: 0xf0b247 };
+    case DesignStyle.COASTAL:
+      return { base: 0xf1f5f4, accent: 0x6e93aa };
+    case DesignStyle.INDUSTRIAL:
+      return { base: 0xb46a3c, accent: 0x2d3436 };
+    case DesignStyle.JAPANDI:
+      return { base: 0xd8d0c4, accent: 0x6b6258 };
+    default:
+      return { base: 0xcfc8bc, accent: 0xf7f4ec };
+  }
+};
+
+const createThrowBlanketMesh = (style: DesignStyle): THREE.Group => {
+  const group = new THREE.Group();
+  const colors = getThrowBlanketColors(style);
+  const blanketMat = new THREE.MeshStandardMaterial({ color: colors.base, roughness: 0.93, metalness: 0 });
+  const seamMat = new THREE.MeshStandardMaterial({ color: colors.accent, roughness: 0.95, metalness: 0 });
+
+  const seatPanel = createViewerRoundedBox(0.68, 0.028, 0.78, blanketMat, 0.018, 3);
+  seatPanel.position.set(0, 0.018, 0);
+  seatPanel.castShadow = true;
+  seatPanel.receiveShadow = true;
+  group.add(seatPanel);
+
+  const frontDrop = createViewerRoundedBox(0.68, 0.34, 0.026, blanketMat, 0.014, 3);
+  frontDrop.position.set(0, -0.17, 0.405);
+  frontDrop.castShadow = true;
+  frontDrop.receiveShadow = true;
+  group.add(frontDrop);
+
+  const topRoll = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.62, 14), blanketMat);
+  topRoll.rotation.z = Math.PI / 2;
+  topRoll.position.set(0, 0.05, -0.36);
+  topRoll.castShadow = true;
+  group.add(topRoll);
+
+  [-0.2, 0.02, 0.24].forEach((x, idx) => {
+    const fold = createViewerRoundedBox(0.012, 0.018, 0.67, seamMat, 0.004, 2);
+    fold.position.set(x, 0.046, -0.01 + idx * 0.015);
+    fold.rotation.z = idx === 1 ? -0.025 : 0.02;
+    fold.castShadow = true;
+    group.add(fold);
+  });
+
+  [-0.22, 0.22].forEach((x) => {
+    const frontPleat = createViewerRoundedBox(0.014, 0.26, 0.01, seamMat, 0.004, 2);
+    frontPleat.position.set(x, -0.17, 0.424);
+    frontPleat.castShadow = true;
+    group.add(frontPleat);
+  });
+
+  const lowerHem = createViewerRoundedBox(0.62, 0.018, 0.012, seamMat, 0.004, 2);
+  lowerHem.position.set(0, -0.33, 0.424);
+  lowerHem.castShadow = true;
+  group.add(lowerHem);
+
+  const fringeCordMat = new THREE.MeshStandardMaterial({
+    color: blendViewerHexColor(colors.base, colors.accent, 0.72),
+    roughness: 0.98,
+    metalness: 0
+  });
+  const fringeKnotMat = new THREE.MeshStandardMaterial({
+    color: blendViewerHexColor(colors.base, colors.accent, 0.58),
+    roughness: 0.98,
+    metalness: 0
+  });
+
+  const braidedEdge = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.64, 10), fringeKnotMat);
+  braidedEdge.rotation.z = Math.PI / 2;
+  braidedEdge.position.set(0, -0.35, 0.438);
+  braidedEdge.castShadow = true;
+  group.add(braidedEdge);
+
+  for (let i = 0; i < 11; i++) {
+    const x = -0.31 + i * 0.062;
+    const knot = new THREE.Mesh(new THREE.SphereGeometry(0.008, 8, 6), fringeKnotMat);
+    knot.scale.set(1, 0.82, 0.72);
+    knot.position.set(x, -0.356, 0.442);
+    knot.castShadow = true;
+    group.add(knot);
+
+    for (let strand = 0; strand < 3; strand++) {
+      const offset = strand - 1;
+      const length = 0.115 + ((i + strand) % 3) * 0.014;
+      const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.0024, 0.0018, length, 5), fringeCordMat);
+      cord.position.set(x + offset * 0.008, -0.36 - length / 2, 0.442 + offset * 0.003);
+      cord.rotation.x = offset * 0.055;
+      cord.rotation.z = (i % 2 === 0 ? 0.025 : -0.025) + offset * 0.035;
+      cord.castShadow = true;
+      group.add(cord);
+
+      const tasselTip = new THREE.Mesh(new THREE.SphereGeometry(0.0042, 6, 5), fringeCordMat);
+      tasselTip.scale.set(1, 0.72, 1);
+      tasselTip.position.set(x + offset * 0.008, -0.362 - length, 0.442 + offset * 0.003);
+      tasselTip.castShadow = true;
+      group.add(tasselTip);
+    }
+  }
+
+  return group;
+};
+
+const createWallMirrorMesh = (style: DesignStyle): THREE.Group => {
+  const group = new THREE.Group();
+  const frameColor = style === DesignStyle.LUXURY ? 0xd4af37 : style === DesignStyle.INDUSTRIAL ? 0x202124 : 0xb8a17a;
+  const mirrorMat = new THREE.MeshStandardMaterial({ color: 0xbfd2dc, metalness: 0.95, roughness: 0.03 });
+  const frameMat = new THREE.MeshStandardMaterial({ color: frameColor, metalness: 0.75, roughness: 0.18 });
+
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.012, 48), mirrorMat);
+  disc.rotation.x = Math.PI / 2;
+  disc.castShadow = true;
+  group.add(disc);
+
+  const frame = new THREE.Mesh(new THREE.TorusGeometry(0.327, 0.018, 10, 48), frameMat);
+  frame.castShadow = true;
+  group.add(frame);
+
+  return group;
+};
 
 // Helper to build detailed 3D Doors matching styles
 const createDoorMesh = (style: string, colorHex: number) => {
@@ -560,7 +909,11 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
   const [barCartAdded, setBarCartAdded] = useState(false);
   const [concreteWallAdded, setConcreteWallAdded] = useState(false);
   const [diffuserAdded, setDiffuserAdded] = useState(false);
-  const [cushionsAdded, setCushionsAdded] = useState(false);
+  const [cushionsAdded, setCushionsAdded] = useState(roomType === RoomType.LIVING_ROOM);
+  const [areaRugAdded, setAreaRugAdded] = useState(true);
+  const [throwBlanketAdded, setThrowBlanketAdded] = useState(false);
+  const [curtainsAdded, setCurtainsAdded] = useState(false);
+  const [wallMirrorAdded, setWallMirrorAdded] = useState(false);
   const [tableLampAdded, setTableLampAdded] = useState(false);
   const [wardrobeAdded, setWardrobeAdded] = useState(false);
   const [vaseAdded, setVaseAdded] = useState(false);
@@ -579,7 +932,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
   const [lightTemperature, setLightTemperature] = useState<'white' | 'warmwhite' | 'warmyellow'>('warmwhite');
   const [ceilingLightStyle, setCeilingLightStyle] = useState<'flushmount' | 'modern' | 'scandinavian' | 'industrial' | 'luxury'>('flushmount');
   const [activePanelTab, setActivePanelTab] = useState<'layout' | 'materials' | 'furniture'>('furniture');
-  const [selectedPresetTab, setSelectedPresetTab] = useState<'all' | 'core_furniture' | 'soft_furniture' | 'lighting' | 'accents'>('all');
+  const [selectedPresetTab, setSelectedPresetTab] = useState<'all' | 'core_furniture' | 'soft_furniture' | 'textiles' | 'lighting' | 'accents'>('all');
 
   // Core Furniture Visibility state variables (to make ALL default/initial furniture optional)
   const [livingSofaAdded, setLivingSofaAdded] = useState(true);
@@ -776,6 +1129,10 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
     concreteWallAdded,
     diffuserAdded,
     cushionsAdded,
+    areaRugAdded,
+    throwBlanketAdded,
+    curtainsAdded,
+    wallMirrorAdded,
     tableLampAdded,
     wardrobeAdded,
     vaseAdded,
@@ -876,6 +1233,10 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
         if (saved.concreteWallAdded !== undefined) setConcreteWallAdded(saved.concreteWallAdded);
         if (saved.diffuserAdded !== undefined) setDiffuserAdded(saved.diffuserAdded);
         if (saved.cushionsAdded !== undefined) setCushionsAdded(saved.cushionsAdded);
+        if (saved.areaRugAdded !== undefined) setAreaRugAdded(saved.areaRugAdded);
+        if (saved.throwBlanketAdded !== undefined) setThrowBlanketAdded(saved.throwBlanketAdded);
+        if (saved.curtainsAdded !== undefined) setCurtainsAdded(saved.curtainsAdded);
+        if (saved.wallMirrorAdded !== undefined) setWallMirrorAdded(saved.wallMirrorAdded);
         if (saved.tableLampAdded !== undefined) setTableLampAdded(saved.tableLampAdded);
         if (saved.wardrobeAdded !== undefined) setWardrobeAdded(saved.wardrobeAdded);
         if (saved.vaseAdded !== undefined) setVaseAdded(saved.vaseAdded);
@@ -966,7 +1327,11 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
         setBarCartAdded(false);
         setConcreteWallAdded(false);
         setDiffuserAdded(false);
-        setCushionsAdded(false);
+        setCushionsAdded(roomType === RoomType.LIVING_ROOM);
+        setAreaRugAdded(true);
+        setThrowBlanketAdded(false);
+        setCurtainsAdded(false);
+        setWallMirrorAdded(false);
         setTableLampAdded(false);
         setWardrobeAdded(false);
         setVaseAdded(false);
@@ -1080,7 +1445,25 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
       return { x: -rW / 2 + 1.45, z: rD / 2 - 1.1, rot: 0, scale: 1 };
     }
     if (item === 'cushions') {
-      return { x: 0, z: rD / 2 - 1.25, rot: 0, scale: 1 };
+      return {
+        x: 0,
+        z: rType === RoomType.LIVING_ROOM ? rD / 2 - 0.53 : -rD / 2 + 1.23,
+        rot: rType === RoomType.LIVING_ROOM ? Math.PI : 0,
+        scale: 1
+      };
+    }
+    if (item === 'throw_blanket') {
+      const isLivingRoomThrow = rType === RoomType.LIVING_ROOM;
+      const bedThrowX = rType === RoomType.STUDIO ? -rW / 2 + 1.15 : 0;
+      return {
+        x: isLivingRoomThrow ? (sofaType === 'l_shape' ? 0.78 : -0.58) : bedThrowX,
+        z: isLivingRoomThrow ? (sofaType === 'l_shape' ? rD / 2 - 0.98 : rD / 2 - 0.72) : -rD / 2 + 1.84,
+        rot: isLivingRoomThrow ? Math.PI : 0,
+        scale: 1
+      };
+    }
+    if (item === 'wall_mirror') {
+      return { x: rW / 2 - 1.05, z: -rD / 2 + 0.028, rot: 0, scale: 1 };
     }
     if (item === 'table_lamp') {
       return { x: -rW / 2 + 0.95, z: rD / 2 - 1.1, rot: 0, scale: 1 };
@@ -1224,6 +1607,15 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
       // width: 0.4, depth: 0.4
       padX = 0.20 + buffer;
       padZ = 0.20 + buffer;
+    } else if (item === 'cushions') {
+      padX = 0.75 + buffer;
+      padZ = 0.20 + buffer;
+    } else if (item === 'throw_blanket') {
+      padX = 0.40 + buffer;
+      padZ = 0.30 + buffer;
+    } else if (item === 'wall_mirror') {
+      padX = 0.34 + buffer;
+      padZ = 0.035 + buffer;
     } else if (item === 'wardrobe') {
       // width: 1.2m, depth: 0.58m
       const absCos = Math.abs(Math.cos(furnitureRot));
@@ -1333,6 +1725,10 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
       case 'concrete': return concreteWallAdded;
       case 'diffuser': return diffuserAdded;
       case 'cushions': return cushionsAdded;
+      case 'area_rug': return areaRugAdded;
+      case 'throw_blanket': return throwBlanketAdded;
+      case 'curtains': return curtainsAdded;
+      case 'wall_mirror': return wallMirrorAdded;
       case 'table_lamp': return tableLampAdded;
       case 'wardrobe': return wardrobeAdded;
       case 'vase': return vaseAdded;
@@ -1405,7 +1801,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
           setTableLampAdded(false);
           continue;
         }
-        if (prompt === '在房間角落佈置高大的琴葉榕盆栽') {
+        if (prompt === '在房間角落佈置高雅的羽裂龜背芋盆栽') {
           setPlantAdded(false);
           continue;
         }
@@ -1449,8 +1845,24 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
           setDiffuserAdded(false);
           continue;
         }
-        if (prompt === '在沙發或床邊置放具有低飽和色澤的莫蘭迪絨質抱枕') {
+        if (prompt === '在沙發或床邊配置依風格搭配的方形軟抱枕') {
           setCushionsAdded(false);
+          continue;
+        }
+        if (prompt === '在空間中央鋪設依風格搭配的柔軟區域地毯') {
+          setAreaRugAdded(false);
+          continue;
+        }
+        if (prompt === '在沙發或床尾加入與風格相襯的織品披毯') {
+          setThrowBlanketAdded(false);
+          continue;
+        }
+        if (prompt === '在窗邊配置與空間風格相襯的柔性窗簾') {
+          setCurtainsAdded(false);
+          continue;
+        }
+        if (prompt === '在主牆面配置一面圓形金屬框牆鏡') {
+          setWallMirrorAdded(false);
           continue;
         }
         if (prompt === '在空間中置放一尊淡雅冰裂釉工藝陶瓷花瓶點綴') {
@@ -1512,7 +1924,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
         if (prompt.includes("百褶") || prompt.includes("摺紙") || (prompt.includes("檯燈") && !prompt.includes("落地燈"))) {
           setTableLampAdded(false);
         }
-        if (prompt.includes("琴葉榕") || (prompt.includes("綠植") && !prompt.includes("畫") && !prompt.includes("沙發"))) {
+        if (prompt.includes("琴葉榕") || prompt.includes("龜背芋") || (prompt.includes("綠植") && !prompt.includes("畫") && !prompt.includes("沙發"))) {
           setPlantAdded(false);
         }
         if (prompt.includes("幾何抽象畫") || prompt.includes("抽象藝術畫") || (prompt.includes("抽象畫") && !prompt.includes("沙發"))) {
@@ -1536,8 +1948,20 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
         if (prompt.includes("香氛") || prompt.includes("擴香")) {
           setDiffuserAdded(false);
         }
-        if (prompt.includes("莫蘭迪絨質") || (prompt.includes("抱枕") && !prompt.includes("沙發"))) {
+        if (prompt.includes("莫蘭迪絨質") || prompt.includes("方形軟抱枕") || prompt.includes("靠墊") || prompt.includes("抱枕")) {
           setCushionsAdded(false);
+        }
+        if (prompt.includes("區域地毯") || prompt.includes("地毯")) {
+          setAreaRugAdded(false);
+        }
+        if (prompt.includes("披毯") || prompt.includes("毛毯")) {
+          setThrowBlanketAdded(false);
+        }
+        if (prompt.includes("窗簾") || prompt.includes("簾布")) {
+          setCurtainsAdded(false);
+        }
+        if (prompt.includes("牆鏡") || prompt.includes("鏡子") || prompt.includes("圓形鏡")) {
+          setWallMirrorAdded(false);
         }
         if (prompt.includes("花瓶") || prompt.includes("花器") || prompt.includes("陶瓷瓶") || prompt.includes("Vase")) {
           setVaseAdded(false);
@@ -1591,7 +2015,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
         setCustomLampsOn(true);
         return;
       }
-      if (prompt === '在房間角落佈置高大的琴葉榕盆栽') {
+      if (prompt === '在房間角落佈置高雅的羽裂龜背芋盆栽') {
         setPlantAdded(true);
         return;
       }
@@ -1619,8 +2043,24 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
         setDiffuserAdded(true);
         return;
       }
-      if (prompt === '在沙發或床邊置放具有低飽和色澤的莫蘭迪絨質抱枕') {
+      if (prompt === '在沙發或床邊配置依風格搭配的方形軟抱枕') {
         setCushionsAdded(true);
+        return;
+      }
+      if (prompt === '在空間中央鋪設依風格搭配的柔軟區域地毯') {
+        setAreaRugAdded(true);
+        return;
+      }
+      if (prompt === '在沙發或床尾加入與風格相襯的織品披毯') {
+        setThrowBlanketAdded(true);
+        return;
+      }
+      if (prompt === '在窗邊配置與空間風格相襯的柔性窗簾') {
+        setCurtainsAdded(true);
+        return;
+      }
+      if (prompt === '在主牆面配置一面圓形金屬框牆鏡') {
+        setWallMirrorAdded(true);
         return;
       }
       if (prompt === '在空間中置放一尊淡雅冰裂釉工藝陶瓷花瓶點綴') {
@@ -1713,7 +2153,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
         setTableLampAdded(true);
         setCustomLampsOn(true);
       }
-      if (prompt.includes("琴葉榕") || (prompt.includes("綠植") && !prompt.includes("畫") && !prompt.includes("沙發"))) {
+      if (prompt.includes("琴葉榕") || prompt.includes("龜背芋") || (prompt.includes("綠植") && !prompt.includes("畫") && !prompt.includes("沙發"))) {
         setPlantAdded(true);
       }
       if (prompt.includes("幾何抽象畫") || prompt.includes("抽象藝術畫") || (prompt.includes("抽象畫") && !prompt.includes("沙發"))) {
@@ -1738,8 +2178,20 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
       if (prompt.includes("香氛") || prompt.includes("擴香")) {
         setDiffuserAdded(true);
       }
-      if (prompt.includes("莫蘭迪絨質") || (prompt.includes("抱枕") && !prompt.includes("沙發"))) {
+      if (prompt.includes("莫蘭迪絨質") || prompt.includes("方形軟抱枕") || prompt.includes("靠墊") || prompt.includes("抱枕")) {
         setCushionsAdded(true);
+      }
+      if (prompt.includes("區域地毯") || prompt.includes("地毯")) {
+        setAreaRugAdded(true);
+      }
+      if (prompt.includes("披毯") || prompt.includes("毛毯")) {
+        setThrowBlanketAdded(true);
+      }
+      if (prompt.includes("窗簾") || prompt.includes("簾布")) {
+        setCurtainsAdded(true);
+      }
+      if (prompt.includes("牆鏡") || prompt.includes("鏡子") || prompt.includes("圓形鏡")) {
+        setWallMirrorAdded(true);
       }
       if (prompt.includes("花瓶") || prompt.includes("花器") || prompt.includes("陶瓷瓶") || prompt.includes("Vase")) {
         setVaseAdded(true);
@@ -1853,6 +2305,26 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
         setCushionsAdded(prev => {
           const next = !prev;
           if (!next && selectedFurniture === 'cushions') setSelectedFurniture('sofa_or_bed');
+          return next;
+        });
+        break;
+      case 'area_rug':
+        setAreaRugAdded(prev => !prev);
+        break;
+      case 'throw_blanket':
+        setThrowBlanketAdded(prev => {
+          const next = !prev;
+          if (!next && selectedFurniture === 'throw_blanket') setSelectedFurniture('sofa_or_bed');
+          return next;
+        });
+        break;
+      case 'curtains':
+        setCurtainsAdded(prev => !prev);
+        break;
+      case 'wall_mirror':
+        setWallMirrorAdded(prev => {
+          const next = !prev;
+          if (!next && selectedFurniture === 'wall_mirror') setSelectedFurniture('sofa_or_bed');
           return next;
         });
         break;
@@ -2166,6 +2638,11 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
       const ctx = canvas.getContext('2d');
       if (!ctx) return null;
 
+      const seeded01 = (seed: number) => {
+        const value = Math.sin(seed) * 10000;
+        return value - Math.floor(value);
+      };
+
       const baseColor = '#' + floorObj.color.toString(16).padStart(6, '0');
 
       ctx.fillStyle = baseColor;
@@ -2201,10 +2678,11 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
             if (floorObj.id === 'slate_tile' || floorObj.id === 'vintage_tile') {
               ctx.fillStyle = 'rgba(0,0,0,0.03)';
               for (let i = 0; i < 30; i++) {
-                const rx = x + Math.random() * (gridSize - 8) + 4;
-                const ry = y + Math.random() * (gridSize - 8) + 4;
-                const rw = Math.random() * 5 + 1;
-                const rh = Math.random() * 5 + 1;
+                const seed = x * 0.37 + y * 0.53 + i * 17.17;
+                const rx = x + seeded01(seed) * (gridSize - 8) + 4;
+                const ry = y + seeded01(seed + 11.31) * (gridSize - 8) + 4;
+                const rw = seeded01(seed + 23.7) * 5 + 1;
+                const rh = seeded01(seed + 31.9) * 5 + 1;
                 ctx.fillRect(rx, ry, rw, rh);
               }
             }
@@ -2327,9 +2805,9 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
 
         const chipColors = ['#cc7b62', '#415a77', '#778da9', '#ffffff', '#222222', '#d4af37', '#808000'];
         for (let i = 0; i < 300; i++) {
-          const cx = Math.random() * 512;
-          const cy = Math.random() * 512;
-          const size = Math.random() * 4 + 1;
+          const cx = seeded01(i * 13.19) * 512;
+          const cy = seeded01(i * 29.41 + 4.7) * 512;
+          const size = seeded01(i * 41.77 + 8.3) * 4 + 1;
           ctx.fillStyle = chipColors[i % chipColors.length];
           ctx.beginPath();
           ctx.arc(cx, cy, size, 0, Math.PI * 2);
@@ -2353,7 +2831,12 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
 
         ctx.fillStyle = 'rgba(0,0,0,0.04)';
         for (let i = 0; i < 50; i++) {
-          ctx.fillRect(Math.random() * 512, Math.random() * 512, Math.random() * 2 + 1, Math.random() * 2 + 1);
+          ctx.fillRect(
+            seeded01(i * 7.13) * 512,
+            seeded01(i * 17.89 + 3.1) * 512,
+            seeded01(i * 29.7 + 5.6) * 2 + 1,
+            seeded01(i * 37.3 + 9.4) * 2 + 1
+          );
         }
 
         ctx.strokeStyle = 'rgba(0,0,0,0.08)';
@@ -2362,8 +2845,10 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
       }
 
       const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
       texture.wrapS = THREE.RepeatWrapping;
       texture.wrapT = THREE.RepeatWrapping;
+      texture.anisotropy = 4;
       
       let repeatFactor = 4;
       if (floorObj.id === 'herringbone') repeatFactor = 6;
@@ -2371,15 +2856,27 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
       if (floorObj.id === 'tile' || floorObj.id === 'slate_tile' || floorObj.id === 'vintage_tile') repeatFactor = 5;
 
       texture.repeat.set(repeatFactor * floorTiling, repeatFactor * floorTiling);
+      texture.needsUpdate = true;
       return texture;
     };
 
     const floorTexture = createFloorTextureMap(selectedFloorObj);
+    const floorBumpScale = floorTexture ? (
+      selectedFloorObj.id === 'oak' || selectedFloorObj.id === 'walnut' ? 0.018 :
+      selectedFloorObj.id === 'herringbone' ? 0.014 :
+      selectedFloorObj.id === 'tile' || selectedFloorObj.id === 'slate_tile' || selectedFloorObj.id === 'vintage_tile' ? 0.007 :
+      selectedFloorObj.id === 'concrete' ? 0.012 :
+      selectedFloorObj.id === 'terrazzo' ? 0.004 :
+      selectedFloorObj.id === 'marble' ? 0.003 :
+      0
+    ) : 0;
 
     // Ground Material (Floor) with custom roughness override and procedural patterns
     const floorMat = new THREE.MeshStandardMaterial({
       color: floorTexture ? 0xffffff : selectedFloorObj.color,
       map: floorTexture,
+      bumpMap: floorTexture,
+      bumpScale: floorBumpScale,
       roughness: floorRoughness, // Live slider!
       metalness: selectedFloorObj.metalness,
     });
@@ -2490,10 +2987,13 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
         }
 
         const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
         texture.wrapS = THREE.RepeatWrapping;
         texture.wrapT = THREE.RepeatWrapping;
+        texture.anisotropy = 4;
         // Repeat so count is realistic
         texture.repeat.set(6, 3);
+        texture.needsUpdate = true;
         return texture;
       };
 
@@ -2509,7 +3009,9 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
       color: wallColorHex,
       roughness: wallRoughness,
       metalness: wallMetalness,
-      map: wallTileMap || null
+      map: wallTileMap || null,
+      bumpMap: wallTileMap || null,
+      bumpScale: wallTileMap ? 0.006 : 0
     });
 
     // Accent Wall Material (Optional feature back main wall)
@@ -2518,7 +3020,9 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
       color: wallAccentColor.startsWith('#') ? accentColorHex : selectedWallObj.color,
       roughness: wallRoughness,
       metalness: wallMetalness,
-      map: accentTileMap || null
+      map: accentTileMap || null,
+      bumpMap: accentTileMap || null,
+      bumpScale: accentTileMap ? 0.006 : 0
     });
 
     // Concrete overlay visual material
@@ -2719,31 +3223,68 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
     }
     scene.add(windowMesh);
 
-    // Cozy Rug on Floor
-    let rugW = Math.min(3.6, roomW - 0.8);
-    let rugD = Math.min(2.6, roomD - 0.8);
-    let rugColor = 0xe5e1d8; // Minimalist warm rug
+    if (curtainsAdded && roomType !== RoomType.BATHROOM && roomType !== RoomType.KITCHEN) {
+      const curtainGroup = new THREE.Group();
+      const curtainMat = new THREE.MeshStandardMaterial({
+        color: getCurtainColor(style),
+        roughness: 0.92,
+        metalness: 0,
+        transparent: true,
+        opacity: 0.9
+      });
+      const rodMat = new THREE.MeshStandardMaterial({ color: 0x1f2428, roughness: 0.35, metalness: 0.6 });
+      const panelW = Math.max(0.18, Math.min(0.34, actualW * 0.18));
+      const panelH = Math.min(roomH - 0.25, actualH + 0.75);
+      const panelY = Math.max(panelH / 2 + 0.08, winY);
+      const panelInset = 0.036;
 
-    // Tone map style specific rugs
-    if (style === DesignStyle.INDUSTRIAL) {
-      rugColor = 0x2e2e2e;
-    } else if (style === DesignStyle.BOHEMIAN) {
-      rugColor = 0xc68e70; // terracotta warm boho rug
-    } else if (style === DesignStyle.SCANDINAVIAN) {
-      rugColor = 0xcccccc; // heather grey rug
-    } else if (style === DesignStyle.LUXURY) {
-      rugColor = 0x112233; // Royal deep blue rug
+      [-1, 1].forEach((side) => {
+        const panel = new THREE.Mesh(new THREE.BoxGeometry(panelW, panelH, 0.035), curtainMat);
+        panel.position.set(side * (actualW / 2 + panelW / 2 + 0.045), panelY, 0);
+        panel.castShadow = true;
+        panel.receiveShadow = true;
+        curtainGroup.add(panel);
+
+        for (let i = 0; i < 3; i++) {
+          const pleat = new THREE.Mesh(new THREE.BoxGeometry(0.012, panelH * 0.94, 0.012), curtainMat);
+          pleat.position.set(panel.position.x + (i - 1) * panelW * 0.24, panelY, 0.026);
+          pleat.castShadow = true;
+          curtainGroup.add(pleat);
+        }
+      });
+
+      const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, actualW + panelW * 2 + 0.22, 14), rodMat);
+      rod.rotation.z = Math.PI / 2;
+      rod.position.set(0, panelY + panelH / 2 + 0.05, 0.02);
+      rod.castShadow = true;
+      curtainGroup.add(rod);
+
+      if (windowPosition === 'left') {
+        curtainGroup.position.set(-roomW / 2 + panelInset, 0, windowMesh.position.z);
+        curtainGroup.rotation.y = Math.PI / 2;
+      } else if (windowPosition === 'right') {
+        curtainGroup.position.set(roomW / 2 - panelInset, 0, windowMesh.position.z);
+        curtainGroup.rotation.y = -Math.PI / 2;
+      } else {
+        curtainGroup.position.set(windowMesh.position.x, 0, -roomD / 2 + panelInset);
+      }
+      scene.add(curtainGroup);
     }
 
-    const rugGeo = new THREE.BoxGeometry(rugW, 0.015, rugD);
-    const rugMat = new THREE.MeshStandardMaterial({
-      color: rugColor,
-      roughness: 0.95,
-    });
-    const rug = new THREE.Mesh(rugGeo, rugMat);
-    rug.position.set(0, 0.007, 0);
-    rug.receiveShadow = true;
-    scene.add(rug);
+    // Cozy area rug on floor
+    if (areaRugAdded) {
+      const rugW = Math.min(3.6, roomW - 0.8);
+      const rugD = Math.min(2.6, roomD - 0.8);
+      const rugGeo = new THREE.BoxGeometry(rugW, 0.015, rugD);
+      const rugMat = new THREE.MeshStandardMaterial({
+        color: getAreaRugColor(style),
+        roughness: 0.95,
+      });
+      const rug = new THREE.Mesh(rugGeo, rugMat);
+      rug.position.set(0, 0.007, 0);
+      rug.receiveShadow = true;
+      scene.add(rug);
+    }
 
     // 4. FURNITURE GROUP (Tailored directly to RoomType)
     const furnitureGroup = new THREE.Group();
@@ -2751,7 +3292,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
 
     // Render Sofa, Bed, or Dining Table based on RoomType
     if (roomType === RoomType.LIVING_ROOM) {
-      const livingRoomGroup = buildLivingRoomFurniture(style, effectiveCouchMaterial, selectedFurniture, furnitureX, furnitureZ, furnitureRot, furnitureScale, roomW, roomD, sofaType);
+      const livingRoomGroup = buildLivingRoomFurniture(style, effectiveCouchMaterial, selectedFurniture, furnitureX, furnitureZ, furnitureRot, furnitureScale, roomW, roomD, sofaType, cushionsAdded);
       furnitureGroup.add(livingRoomGroup);
     } else if (roomType === RoomType.BEDROOM) {
       const bedroomGroup = buildBedroomFurniture(
@@ -3117,10 +3658,13 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
               leafMesh.position.set(leafX, leafY, leafZ);
               
               // Rotate to point gracefully outward and droop down naturalistic
+              const leafSeed = stemIdx * 31 + idx * 7 + l * 13;
+              const leafPitch = 0.25 + (Math.sin(leafSeed) * 0.5 + 0.5) * 0.15;
+              const leafRoll = -0.12 + (Math.sin(leafSeed + 4.7) * 0.5 + 0.5) * 0.24;
               leafMesh.rotation.set(
-                0.25 + Math.random() * 0.15,
+                leafPitch,
                 ringAngle,
-                -0.12 + Math.random() * 0.24
+                leafRoll
               );
               stemGroup.add(leafMesh);
             }
@@ -3302,6 +3846,25 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
         clockGroup.position.y = defaultHeight;
       }
       furnitureGroup.add(clockGroup);
+    }
+
+    // --- ACCENTS: Round metal-framed wall mirror ---
+    if (wallMirrorAdded && roomType !== RoomType.BATHROOM && roomType !== RoomType.KITCHEN) {
+      const mirrorGroup = createWallMirrorMesh(style);
+      mirrorGroup.name = "wall_mirror";
+      const defaults = getFurnitureDefaults(roomType, "wall_mirror");
+      const defaultHeight = 1.55;
+
+      mirrorGroup.position.set(defaults.x, defaultHeight, mirrorGroup.name === selectedFurniture ? furnitureZ : defaults.z);
+      if (mirrorGroup.name === selectedFurniture) {
+        mirrorGroup.position.x = furnitureX;
+        mirrorGroup.rotation.y = furnitureRot;
+        mirrorGroup.scale.set(furnitureScale, furnitureScale, furnitureScale);
+        mirrorGroup.position.y = defaultHeight;
+      } else {
+        mirrorGroup.rotation.y = defaults.rot;
+      }
+      furnitureGroup.add(mirrorGroup);
     }
 
     // --- FURNITURE: Slatted Cherry Wood Shoe Cabinet (👞 經典櫻桃木格柵對開鞋櫃) ---
@@ -4128,36 +4691,64 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
     }
 
     // --- ACCENTS: Cushions ---
-    if (cushionsAdded) {
+    if (cushionsAdded && roomType !== RoomType.LIVING_ROOM) {
       const cushGroup = new THREE.Group();
       cushGroup.name = "cushions";
 
-      // 3 beautiful plush pillows in morandi tones
-      const colors = [0xd69a8b, 0x8ba6d6, 0x93b599];
-      colors.forEach((col, idx) => {
-        const pillowMesh = new THREE.Mesh(
-          new THREE.BoxGeometry(0.38, 0.38, 0.12),
-          new THREE.MeshStandardMaterial({ color: col, roughness: 0.85 })
+      // 3 style-matched square throw pillows
+      const cushionSpecs = getAccentCushionSpecs(style);
+      cushionSpecs.forEach((spec, idx) => {
+        const pillowMesh = createViewerThrowPillow(spec);
+        const isLeftFront = idx === 1;
+        const isRight = idx === 2;
+        const xOffset = isRight ? 0.46 : isLeftFront ? -0.28 : -0.48;
+        const yOffset = isLeftFront ? 0.19 : 0.23;
+        const zOffset = roomType === RoomType.LIVING_ROOM
+          ? (isLeftFront ? -0.15 : isRight ? -0.24 : -0.28)
+          : (isLeftFront ? 0.11 : isRight ? 0.02 : -0.04);
+        pillowMesh.position.set(xOffset, yOffset, zOffset);
+        pillowMesh.rotation.set(
+          isLeftFront ? -0.035 : roomType === RoomType.LIVING_ROOM ? -0.09 : 0.04,
+          isRight ? -0.1 : isLeftFront ? 0.04 : 0.08,
+          isRight ? 0.1 : isLeftFront ? 0.07 : -0.09
         );
-        pillowMesh.position.set(idx * 0.25 - 0.25, 0.2, (idx % 2 === 0 ? 0.05 : -0.05));
-        pillowMesh.rotation.set(Math.PI / 8, idx * 0.2 - 0.2, 0);
-        pillowMesh.castShadow = true;
+        if (isLeftFront) pillowMesh.scale.set(0.92, 0.92, 0.92);
         cushGroup.add(pillowMesh);
       });
 
       // Default positioning near bed or couch
-      const defaultCushX = 0;
-      const defaultCushZ = roomD / 2 - 1.1; 
-      const defaultHeight = (roomType === RoomType.BEDROOM) ? 0.55 : 0.44;
+      const defaults = getFurnitureDefaults(roomType, "cushions");
+      const defaultHeight = (roomType === RoomType.BEDROOM || roomType === RoomType.STUDIO) ? 0.55 : 0.5;
 
-      cushGroup.position.set(defaultCushX, defaultHeight, cushGroup.name === selectedFurniture ? furnitureZ : defaultCushZ);
+      cushGroup.position.set(defaults.x, defaultHeight, cushGroup.name === selectedFurniture ? furnitureZ : defaults.z);
       if (cushGroup.name === selectedFurniture) {
         cushGroup.position.x = furnitureX;
         cushGroup.rotation.y = furnitureRot;
         cushGroup.scale.set(furnitureScale, furnitureScale, furnitureScale);
         cushGroup.position.y = defaultHeight;
+      } else {
+        cushGroup.rotation.y = defaults.rot;
       }
       furnitureGroup.add(cushGroup);
+    }
+
+    // --- TEXTILES: Throw blanket ---
+    if (throwBlanketAdded && (roomType === RoomType.LIVING_ROOM || roomType === RoomType.BEDROOM || roomType === RoomType.STUDIO)) {
+      const blanketGroup = createThrowBlanketMesh(style);
+      blanketGroup.name = "throw_blanket";
+      const defaults = getFurnitureDefaults(roomType, "throw_blanket");
+      const defaultHeight = roomType === RoomType.LIVING_ROOM ? 0.58 : 0.62;
+
+      blanketGroup.position.set(defaults.x, defaultHeight, blanketGroup.name === selectedFurniture ? furnitureZ : defaults.z);
+      if (blanketGroup.name === selectedFurniture) {
+        blanketGroup.position.x = furnitureX;
+        blanketGroup.rotation.y = furnitureRot;
+        blanketGroup.scale.set(furnitureScale, furnitureScale, furnitureScale);
+        blanketGroup.position.y = defaultHeight;
+      } else {
+        blanketGroup.rotation.y = defaults.rot;
+      }
+      furnitureGroup.add(blanketGroup);
     }
 
     // --- ACCENTS: Table Lamp ---
@@ -4169,34 +4760,40 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
       const ceramicMat = new THREE.MeshStandardMaterial({ color: 0xf0ebe1, roughness: 0.8 });
       const pleatedMat = new THREE.MeshStandardMaterial({ color: 0xfffcf5, roughness: 0.95 });
 
+      const footPlate = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.145, 0.022, 28), goldMat);
+      footPlate.position.y = 0.011;
+      footPlate.castShadow = true;
+      footPlate.receiveShadow = true;
+      tLampGroup.add(footPlate);
+
       // Rounded Ceramic bowl base
       const tBase = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 16), ceramicMat);
       tBase.scale.y = 0.8;
-      tBase.position.y = 0.08;
+      tBase.position.y = 0.115;
       tBase.castShadow = true;
       tLampGroup.add(tBase);
 
       // Gold neck
       const tNeck = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.05), goldMat);
-      tNeck.position.y = 0.16;
+      tNeck.position.y = 0.195;
       tLampGroup.add(tNeck);
 
       // Flared pleated shade
       const tShade = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.18, 0.18, 24), pleatedMat);
-      tShade.position.y = 0.25;
+      tShade.position.y = 0.285;
       tShade.castShadow = true;
       tLampGroup.add(tShade);
 
       if (customLampsOn) {
         // Table lamp warm point light
         const tLight = new THREE.PointLight(tempColorHex, 2.0, 4);
-        tLight.position.set(0, 0.25, 0);
+        tLight.position.set(0, 0.285, 0);
         tLight.castShadow = true;
         tLampGroup.add(tLight);
 
         // Bulb indicator
         const tBulb = new THREE.Mesh(new THREE.SphereGeometry(0.02, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffddaa }));
-        tBulb.position.set(0, 0.2, 0);
+        tBulb.position.set(0, 0.235, 0);
         tLampGroup.add(tBulb);
       }
 
@@ -5143,7 +5740,8 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
     wallAccentEnabled, wallAccentColor, couchMaterial, sofaType, bedType,
     floorLampAdded, wineCabinetAdded, catTowerAdded, barCartAdded, ceilingLightStyle,
     leatherPresetActive, herringbonePresetActive, ceilingLightPresetStyle,
-    diffuserAdded, cushionsAdded, tableLampAdded, wardrobeAdded, lightTemperature,
+    diffuserAdded, cushionsAdded, areaRugAdded, throwBlanketAdded, curtainsAdded, wallMirrorAdded,
+    tableLampAdded, wardrobeAdded, lightTemperature,
     vaseAdded, clockAdded, shoeCabinetAdded, mushroomLampAdded, vintageLampAdded,
     cantileverLampAdded, retroSphereLampAdded, turntableAdded, sculptureAdded, stackedBooksAdded,
     botanicalPrintAdded, abstractOilAdded, japanInkAdded,
@@ -5167,7 +5765,8 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
       'accent_plant', 'accent_artwork', 'wine_cabinet', 'cat_tower', 'bar_cart',
       'accent_lamp', 'diffuser', 'cushions', 'table_lamp', 'wardrobe',
       'vase', 'clock', 'shoe_cabinet', 'mushroom_lamp', 'vintage_lamp',
-      'cantilever_lamp', 'retro_sphere_lamp', 'turntable', 'sculpture', 'stacked_books'
+      'cantilever_lamp', 'retro_sphere_lamp', 'turntable', 'sculpture', 'stacked_books',
+      'throw_blanket', 'wall_mirror'
     ];
 
     furnitureGroup.traverse((child) => {
@@ -5288,7 +5887,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
     setStudioBedAdded(false);
     setStudioDeskAdded(true);
     setStudioWardrobeAdded(true);
-    // --- Soft furnishings & accents (軟裝) — restore to initial false ---
+    // --- Soft furnishings & accents (軟裝) — restore to room defaults ---
     setPlantAdded(false);
     setFloorLampAdded(false);
     setArtworkAdded(false);
@@ -5300,7 +5899,11 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
     setBarCartAdded(false);
     setConcreteWallAdded(false);
     setDiffuserAdded(false);
-    setCushionsAdded(false);
+    setCushionsAdded(roomType === RoomType.LIVING_ROOM);
+    setAreaRugAdded(true);
+    setThrowBlanketAdded(false);
+    setCurtainsAdded(false);
+    setWallMirrorAdded(false);
     setTableLampAdded(false);
     setMushroomLampAdded(false);
     setVintageLampAdded(false);
@@ -6027,7 +6630,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
 
                     {/* Accent items added via Preset / Phase 2 buttons */}
                     {wardrobeAdded && <option value="wardrobe">🗃️ 質感收納大衣櫃 (Wardrobe)</option>}
-                    {plantAdded && <option value="accent_plant">🪴 琴葉榕植栽 (Corner Plant)</option>}
+                    {plantAdded && <option value="accent_plant">🪴 羽裂龜背芋植栽 (Corner Plant)</option>}
                     {artworkAdded && <option value="accent_artwork">🎨 幾何極簡抽象藝術畫</option>}
                     {botanicalPrintAdded && <option value="botanical_print">🌿 莫蘭迪植物版畫</option>}
                     {abstractOilAdded && <option value="abstract_oil">🖼️ 抽象表現主義油畫</option>}
@@ -6037,7 +6640,9 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
                     {barCartAdded && <option value="bar_cart">🥂 移動型白色大理石吧台車 (Bar Cart)</option>}
                     {floorLampAdded && <option value="accent_lamp">💡 落日星辰落地燈 (Floor Lamp)</option>}
                     {diffuserAdded && <option value="diffuser">🏺 工藝香氛擴香 (Aroma Diffuser)</option>}
-                    {cushionsAdded && <option value="cushions">🛋️ 絲絨軟抱枕組 (Cozy Cushions)</option>}
+                    {cushionsAdded && roomType !== RoomType.LIVING_ROOM && <option value="cushions">🛋️ 方形軟抱枕組 (Cozy Cushions)</option>}
+                    {throwBlanketAdded && <option value="throw_blanket">🧶 風格織品披毯 (Throw Blanket)</option>}
+                    {wallMirrorAdded && <option value="wall_mirror">🪞 圓形金屬框牆鏡 (Wall Mirror)</option>}
                     {tableLampAdded && <option value="table_lamp">🪔 摺紙百褶檯燈 (Pleated Table Lamp)</option>}
                     {vaseAdded && <option value="vase">🏺 芙蓉曜變花瓶 (Floral Vase)</option>}
                     {clockAdded && <option value="clock">🕰️ 現代藝術奢華掛鐘 (Art Wall Clock)</option>}
@@ -6172,21 +6777,25 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
 
               {/* Quick Preset Elements Refinement (Taiwan Traditional Chinese with Room Categorizations and Filters!) */}
               <div className="space-y-4 bg-neutral-950/40 p-4 rounded-xl border border-neutral-800/80">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-neutral-200 font-extrabold uppercase tracking-wider flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse" />
-                    💡 空間軟裝推薦與自由搭配
-                  </span>
+                <div className="flex justify-between items-start gap-3">
+                  <div>
+                    <span className="text-sm text-neutral-200 font-extrabold tracking-wider flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full" />
+                      家具、燈飾與軟裝搭配
+                    </span>
+                    <span className="mt-1 block text-[11px] text-neutral-500">依目前房型顯示可用項目</span>
+                  </div>
                 </div>
 
                 {/* Category Filtering Tabs (Pills) */}
                 <div className="flex flex-wrap gap-1 pb-1">
                   {[
-                    { id: 'all', label: '全部物件' },
-                    { id: 'core_furniture', label: '🛋️ 基礎硬裝' },
-                    { id: 'soft_furniture', label: '🪑 移動軟裝' },
-                    { id: 'lighting', label: '💡 工藝燈飾' },
-                    { id: 'accents', label: '🎨 藝術擺飾 / 綠植' }
+                    { id: 'all', label: '全部' },
+                    { id: 'core_furniture', label: '主要家具' },
+                    { id: 'soft_furniture', label: '收納家具' },
+                    { id: 'textiles', label: '織品/材質' },
+                    { id: 'lighting', label: '燈飾' },
+                    { id: 'accents', label: '擺飾/綠植' }
                   ].map(tab => (
                     <button
                        key={tab.id}
@@ -6221,19 +6830,24 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
                     // Kitchen
                     { key: 'kitchen_counter', rooms: [RoomType.KITCHEN], name: '🍳 廚房中島島台廚櫃', category: 'core_furniture', recLabel: '廚房核心', desc: '石英石防刮高白備料中島島台，整合了嵌入式電磁爐與實用洗滌水槽。', active: kitchenCounterAdded, prompt: '在廚房中央設置備料中島島台櫃體' },
                     { key: 'kitchen_fridge', rooms: [RoomType.KITCHEN], name: '❄️ 廚房嵌入式雙門冰箱', category: 'core_furniture', recLabel: '廚房核心', desc: '法式曜石黑雙開門大容量冰箱，節能一級標章，保留最新新鮮。', active: kitchenFridgeAdded, prompt: '在廚房牆體內嵌入大型法式對開門冰箱' },
+                    // --- Textiles & Materials Category ---
+                    { key: 'leather', rooms: [RoomType.LIVING_ROOM], name: '🛋️ 棕色皮革沙發面料', category: 'textiles', recLabel: '風格面料', desc: '切換沙發為富有人文歷史厚度與溫潤光澤的頂級棕色皮革。', active: leatherPresetActive, prompt: '將主沙發更換為溫潤色澤的頂級棕色皮革沙發' },
+                    { key: 'area_rug', rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM, RoomType.DINING_ROOM, RoomType.OFFICE, RoomType.STUDIO], name: '▰ 風格區域地毯', category: 'textiles', recLabel: '地面織品', desc: '依目前風格自動搭配低飽和、可襯托家具比例的區域地毯。', active: areaRugAdded, prompt: '在空間中央鋪設依風格搭配的柔軟區域地毯' },
+                    { key: 'curtains', rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM, RoomType.DINING_ROOM, RoomType.OFFICE, RoomType.STUDIO], name: '▥ 柔性窗簾布幔', category: 'textiles', recLabel: '窗邊織品', desc: '依窗戶位置加入兩側落地簾片，讓空間從硬邊框轉為更柔和的生活感。', active: curtainsAdded, prompt: '在窗邊配置與空間風格相襯的柔性窗簾' },
+                    { key: 'throw_blanket', rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM, RoomType.STUDIO], name: '▤ 風格織品披毯', category: 'textiles', recLabel: '沙發床品', desc: '在沙發座面或床尾加入折痕與流蘇細節，顏色會依空間風格自動搭配。', active: throwBlanketAdded, prompt: '在沙發或床尾加入與風格相襯的織品披毯' },
+                    { key: 'cushions', rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM, RoomType.STUDIO], name: '🛋️ 方形軟抱枕搭配', category: 'textiles', recLabel: '靠墊織品', desc: '客廳控制沙發本體抱枕，臥室與工作室則加入正方形、帶滾邊且依風格配色的靠面抱枕組。', active: cushionsAdded, prompt: '在沙發或床邊配置依風格搭配的方形軟抱枕' },
+
                     // --- Soft Furniture Category ---
-                    { key: 'leather', rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM], name: '🛋️ 棕色皮革沙發面料', category: 'soft_furniture', recLabel: '風格面料', desc: '切換沙發為富有人文歷史厚度與溫潤光澤的頂級棕色皮革。', active: leatherPresetActive, prompt: '將主沙發更換為溫潤色澤的頂級棕色皮革沙發' },
                     { key: 'dining_sideboard', rooms: [RoomType.DINING_ROOM], name: '🪑 餐廳輕奢餐邊矮櫃', category: 'soft_furniture', recLabel: '風格儲物', desc: '北美胡桃木與半透長虹玻璃拼貼，收納餐盤及咖啡器具優美典雅。', active: diningSideboardAdded, prompt: '在餐廳牆邊配置輕奢長春花玻璃餐邊櫃' },
                     { key: 'office_bookcase', rooms: [RoomType.OFFICE], name: '📚 書房高檔隔板滿牆書櫃', category: 'soft_furniture', recLabel: '風格儲物', desc: '無背板大空間直落式多層書隔，隨心佈置藝術書籍與珍藏展品。', active: officeBookcaseAdded, prompt: '在書房牆面佈置通頂多層實木大書櫃' },
                     { key: 'wardrobe', rooms: [RoomType.BEDROOM], name: '🗃️ 臥室金屬收納大衣櫃', category: 'soft_furniture', recLabel: '風格儲物', desc: '極高對開高光澤烤漆長門板搭配精緻鍍金拉手，提供極致奢華的大幅床邊收納可能。', active: wardrobeAdded, prompt: '在臥室佈置一座簡潔美觀的高大收納衣櫃' },
                     { key: 'wine_cabinet', rooms: [RoomType.LIVING_ROOM, RoomType.DINING_ROOM], name: '🍷 餐廳玻璃恆溫落地酒櫃', category: 'soft_furniture', recLabel: '風格儲物', desc: '添置奢華黑色框架與暗黑色高透防爆玻璃的嵌入式落地酒櫃。', active: wineCabinetAdded, prompt: '在空間中添置一座優雅奢華的恆溫玻璃落地酒櫃' },
                     { key: 'bar_cart', rooms: [RoomType.LIVING_ROOM, RoomType.DINING_ROOM], name: '🥂 爵士白吧台手推車', category: 'soft_furniture', recLabel: '風格軟裝', desc: '拉絲黃銅金屬框架，上下雙層奢華大理石板與精緻酒具。', active: barCartAdded, prompt: '在空間擺設輕奢黃銅大理石頂級雙層移動吧台車' },
                     { key: 'cat_tower', rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM], name: '🐱 實木貓咪攀爬架', category: 'soft_furniture', recLabel: '風格軟裝', desc: '進口松木多層跳台、劍麻實木抓柱與頂端圓形溫馨貓窩。', active: catTowerAdded, prompt: '設置北歐風格的松木貓爬架，結合天然麻繩抓柱' },
-                    { key: 'shoe_cabinet', name: '👞 櫻桃木格柵對開鞋櫃', category: 'soft_furniture', recLabel: '風格軟裝', desc: '傳統卡榫榫接、經典櫻桃木深沉色澤，飾有防塵通風格柵木板以及精美雙拉絲實心把手。', active: shoeCabinetAdded, prompt: '在玄關或角落擺設一座櫻桃木格柵雕工雙門鞋櫃' },
-                    { key: 'cushions', rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM], name: '🛋️ 絲絨軟靠墊抱枕組', category: 'soft_furniture', recLabel: '風格裝飾', desc: '提供一組極細密絨毛工藝、融入低飽和莫蘭迪撞色的靠面抱枕，營造綿密放鬆感。', active: cushionsAdded, prompt: '在沙發或床邊置放具有低飽和色澤的莫蘭迪絨質抱枕' },
+                    { key: 'shoe_cabinet', rooms: [RoomType.LIVING_ROOM, RoomType.STUDIO], name: '👞 櫻桃木格柵對開鞋櫃', category: 'soft_furniture', recLabel: '風格軟裝', desc: '傳統卡榫榫接、經典櫻桃木深沉色澤，飾有防塵通風格柵木板以及精美雙拉絲實心把手。', active: shoeCabinetAdded, prompt: '在玄關或角落擺設一座櫻桃木格柵雕工雙門鞋櫃' },
 
                     // --- Lighting Category ---
-                    { key: 'lamp', name: '💡 落日星辰角落地燈', category: 'lighting', recLabel: '燈飾照明', desc: '角落嵌入折射微瀾晚霞暖橘夕陽光影的落日藝術立燈。', active: floorLampAdded, prompt: '在角落或天花板邊緣導入柔和的暖黃色落日落地燈' },
+                    { key: 'lamp', rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM, RoomType.DINING_ROOM, RoomType.OFFICE, RoomType.STUDIO], name: '💡 落日星辰角落地燈', category: 'lighting', recLabel: '燈飾照明', desc: '角落嵌入折射微瀾晚霞暖橘夕陽光影的落日藝術立燈。', active: floorLampAdded, prompt: '在角落或天花板邊緣導入柔和的暖黃色落日落地燈' },
                     { key: 'table_lamp', rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM, RoomType.OFFICE], name: '🪔 摺紙百褶檯燈', category: 'lighting', recLabel: '燈飾照明', desc: '侘寂復古質地褶縐燈罩配上細巧黃銅燈橈，釋放宛如微風吹彿的靜謐暖調光晕。', active: tableLampAdded, prompt: '在床頭櫃或書桌頂部架設一座褶縐 Origami 百褶摺紙精緻精美檯燈' },
                     { key: 'mushroom_lamp', rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM], name: '🍄 義式奶油玻璃蘑菇檯燈', category: 'lighting', recLabel: '復古蘑菇燈', desc: '亮麗的圓拱壓克力與吹製奶油玻璃燈身，折射出慵懶溫存的七十年代復古暖流。', active: mushroomLampAdded, prompt: '在房間中置入一展溫馨亮麗的義式奶油玻璃蘑菇檯燈' },
                     { key: 'vintage_lamp', rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM, RoomType.OFFICE], name: '📻 復古長型祖母綠書桌燈', category: 'lighting', recLabel: '祖母綠檯燈', desc: '經典黃銅重基座拉絲燈桿配上瑩潤祖母綠玻璃，展現學院派與大正浪漫的優雅情懷。', active: vintageLampAdded, prompt: '在桌面上添置一盞極具年代感與浪漫文藝氣息的祖母綠玻璃檯燈' },
@@ -6279,6 +6893,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
                     // --- Accents Category ---
                     {
                       key: 'plant',
+                      rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM, RoomType.DINING_ROOM, RoomType.OFFICE, RoomType.STUDIO],
                       name: '🪴 羽裂龜背芋落地盆栽',
                       category: 'accents',
                       recLabel: '植物綠植',
@@ -6288,6 +6903,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
                     },
                     {
                       key: 'art',
+                      rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM, RoomType.DINING_ROOM, RoomType.OFFICE, RoomType.STUDIO],
                       name: '🎨 幾何極簡黑金抽象藝術畫',
                       category: 'accents',
                       recLabel: '牆壁裝飾',
@@ -6297,6 +6913,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
                     },
                     {
                       key: 'botanical_print',
+                      rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM, RoomType.DINING_ROOM, RoomType.OFFICE, RoomType.STUDIO],
                       name: '🌿 莫蘭迪植物風格版畫',
                       category: 'accents',
                       recLabel: '牆壁裝飾',
@@ -6306,6 +6923,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
                     },
                     {
                       key: 'abstract_oil',
+                      rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM, RoomType.DINING_ROOM, RoomType.OFFICE, RoomType.STUDIO],
                       name: '🖼️ 抽象表現主義油畫',
                       category: 'accents',
                       recLabel: '牆壁裝飾',
@@ -6315,6 +6933,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
                     },
                     {
                       key: 'japan_ink',
+                      rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM, RoomType.DINING_ROOM, RoomType.OFFICE, RoomType.STUDIO],
                       name: '🗻 日式水墨山水掛軸',
                       category: 'accents',
                       recLabel: '牆壁裝飾',
@@ -6324,6 +6943,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
                     },
                     {
                       key: 'diffuser',
+                      rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM, RoomType.BATHROOM, RoomType.OFFICE, RoomType.STUDIO],
                       name: '🏺 侘寂工藝香氛擴香',
                       category: 'accents',
                       recLabel: '桌面香氛',
@@ -6333,6 +6953,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
                     },
                     {
                       key: 'vase',
+                      rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM, RoomType.DINING_ROOM, RoomType.OFFICE, RoomType.STUDIO],
                       name: '🏺 芙蓉曜變冰裂釉花瓶',
                       category: 'accents',
                       recLabel: '日式花藝',
@@ -6342,6 +6963,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
                     },
                     {
                       key: 'clock',
+                      rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM, RoomType.DINING_ROOM, RoomType.OFFICE, RoomType.KITCHEN, RoomType.STUDIO],
                       name: '🕰️ 現代金屬拉絲極簡指針掛鐘',
                       category: 'accents',
                       recLabel: '實用掛鐘',
@@ -6349,17 +6971,20 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
                       active: clockAdded,
                       prompt: '在牆面掛設一座現代金屬拉絲極簡指針掛鐘'
                     },
+                    { key: 'wall_mirror', rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM, RoomType.DINING_ROOM, RoomType.STUDIO], name: '🪞 圓形金屬框牆鏡', category: 'accents', recLabel: '牆面裝飾', desc: '在主牆面加入圓形鏡面與細金屬外框，補足牆面層次與反射感。', active: wallMirrorAdded, prompt: '在主牆面配置一面圓形金屬框牆鏡' },
                     { key: 'turntable', rooms: [RoomType.LIVING_ROOM, RoomType.OFFICE], name: '🎵 職人手提黑膠唱片機', category: 'accents', recLabel: '黑膠文藝', desc: '懷舊皮質手提箱外觀內嵌全金屬黑膠唱片盤與精緻銅針，播放歲月留下的黑膠聲音。', active: turntableAdded, prompt: '在桌櫃或置物面佈設一台手提皮箱黑膠唱片機' },
-                    { key: 'sculpture', name: '🧱 侘寂工藝石膏幾何雕塑', category: 'accents', recLabel: '藝術雕塑', desc: '由洞石、米黃大理石相互平衡契合的工藝石雕飾品，散發內斂優雅的侘寂沈思氣質。', active: sculptureAdded, prompt: '在空間中的桌面或展示台置放一尊侘寂工藝石膏雕塑' },
+                    { key: 'sculpture', rooms: [RoomType.LIVING_ROOM, RoomType.BEDROOM, RoomType.DINING_ROOM, RoomType.OFFICE, RoomType.STUDIO], name: '🧱 侘寂工藝石膏幾何雕塑', category: 'accents', recLabel: '藝術雕塑', desc: '由洞石、米黃大理石相互平衡契合的工藝石雕飾品，散發內斂優雅的侘寂沈思氣質。', active: sculptureAdded, prompt: '在空間中的桌面或展示台置放一尊侘寂工藝石膏雕塑' },
                     { key: 'stacked_books', rooms: [RoomType.LIVING_ROOM, RoomType.OFFICE, RoomType.BEDROOM], name: '📚 巴黎藝術史疊書與香氛燭', category: 'accents', recLabel: '桌面藝文', desc: '經典精裝藝術與建築史畫冊整齊堆疊，其上靜置一只特調磨砂玻璃香草香氛蠟燭。', active: stackedBooksAdded, prompt: '在茶几或置物櫃面搭配一疊巴黎藝術史學疊書與頂部精美香氛蠟燭' }
                   ]
                     .filter(item => selectedPresetTab === 'all' || item.category === selectedPresetTab)
                     .filter(item => !(item as any).rooms || (item as any).rooms.includes(roomType))
                     .map(item => (
-                      <div
+                      <button
+                        type="button"
                         key={item.key}
                         onClick={() => handleToggleInternalRefinement(item.key, item.prompt)}
-                        className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer flex flex-col gap-1 hover:bg-neutral-900/60 leading-normal ${item.active ? 'bg-indigo-950/20 border-indigo-500/80 shadow-md' : 'bg-neutral-900/40 border-neutral-800'}`}
+                        aria-pressed={item.active}
+                        className={`w-full p-2.5 rounded-lg border text-left transition-all cursor-pointer flex flex-col gap-1 hover:bg-neutral-900/60 leading-normal ${item.active ? 'bg-indigo-950/20 border-indigo-500/80 shadow-md' : 'bg-neutral-900/40 border-neutral-800'}`}
                       >
                         <div className="flex justify-between items-start gap-2">
                           <span className="text-[13px] font-bold text-neutral-100 leading-snug">{item.name}</span>
@@ -6371,25 +6996,25 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
                           {item.desc}
                         </span>
                         <div className="flex justify-between items-center pt-1 mt-0.5 border-t border-neutral-800/40 select-none">
-                          <span className="text-[11px] text-neutral-600">點選以切換佈置狀態</span>
+                          <span className="text-[11px] text-neutral-600">{item.active ? '已加入配置' : '可加入配置'}</span>
                           <div className="flex items-center gap-1 text-[11px] font-bold">
                             {item.active ? (
-                              <span className="text-emerald-400 flex items-center gap-0.5 animate-pulse">
-                                <CheckCircle2 size={10} /> 已啟動裝飾
+                              <span className="text-emerald-400 flex items-center gap-0.5">
+                                <CheckCircle2 size={10} /> 移除
                               </span>
                             ) : (
-                              <span className="text-neutral-500">未置入</span>
+                              <span className="text-neutral-300">加入</span>
                             )}
                           </div>
                         </div>
-                      </div>
+                      </button>
                     ))}
                 </div>
 
                 {/* Micro-Adjustment Tips */}
-                {(plantAdded || artworkAdded || botanicalPrintAdded || abstractOilAdded || japanInkAdded || wineCabinetAdded || catTowerAdded || barCartAdded || floorLampAdded || diffuserAdded || cushionsAdded || tableLampAdded || wardrobeAdded || mushroomLampAdded || vintageLampAdded || cantileverLampAdded || retroSphereLampAdded || turntableAdded || sculptureAdded || stackedBooksAdded) && (
+                {(plantAdded || artworkAdded || botanicalPrintAdded || abstractOilAdded || japanInkAdded || wineCabinetAdded || catTowerAdded || barCartAdded || floorLampAdded || diffuserAdded || (cushionsAdded && roomType !== RoomType.LIVING_ROOM) || throwBlanketAdded || wallMirrorAdded || tableLampAdded || wardrobeAdded || mushroomLampAdded || vintageLampAdded || cantileverLampAdded || retroSphereLampAdded || turntableAdded || sculptureAdded || stackedBooksAdded) && (
                   <div className="bg-indigo-950/30 border border-indigo-500/30 rounded-lg p-2 text-xs text-indigo-300 font-medium leading-relaxed leading-normal select-none animate-in fade-in">
-                    📌 佈設小秘訣：您已啟用了自選飾物！可在上方「<strong>家具擺設位置微調</strong>」下拉選單選取啟用物件，即能在畫面上透過 3D 滑桿，精細調整飾物在房間中的 <strong>位移 XYZ、旋轉及縮放比例</strong>。
+                    已加入的物件可在上方「家具擺設位置微調」選取後調整位置、角度與比例。
                   </div>
                 )}
               </div>

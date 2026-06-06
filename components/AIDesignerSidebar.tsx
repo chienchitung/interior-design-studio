@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, Wand2, RefreshCw, CheckCircle2, Loader2, LayoutDashboard, AlertCircle, ImageIcon } from 'lucide-react';
+import { Send, Wand2, RefreshCw, CheckCircle2, Loader2, LayoutDashboard, AlertCircle, ImageIcon, Paperclip, FileText, X } from 'lucide-react';
 import {
   chatWithDesigner,
   summarizeHistory,
@@ -58,8 +58,42 @@ const stripRenderTag = (text: string) =>
 
 const INITIAL_MESSAGE: ChatMessage = {
   role: 'assistant',
-  content: '你好，我是你的 AI 室內設計師。可以直接告訴我你的設計想法，或上傳平面配置圖讓我自動識別空間，再陪你一起梳理生活需求與風格方向。',
+  content: '你好，我是你的 AI 室內設計師。可以直接告訴我你的設計想法，也可以上傳平面圖、報價單或補充資料，我會陪你一起梳理生活需求、預算與風格方向。',
 };
+
+const MAX_REFERENCE_FILES = 6;
+const MAX_REFERENCE_FILE_SIZE = 12 * 1024 * 1024;
+const REFERENCE_FILE_ACCEPT = [
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/csv',
+  'text/plain',
+  'text/markdown',
+  'text/rtf',
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  '.pdf',
+  '.doc',
+  '.docx',
+  '.xls',
+  '.xlsx',
+  '.csv',
+  '.txt',
+  '.md',
+  '.rtf',
+].join(',');
+
+const formatFileSize = (bytes: number) => {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const summarizeReferenceFiles = (files: File[]) =>
+  files.map(file => `${file.name}（${formatFileSize(file.size)}）`).join('、');
 
 // AI designer avatar
 const DesignerAvatar = () => (
@@ -87,6 +121,7 @@ const AIDesignerSidebar: React.FC<Props> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isComposing, setIsComposing] = useState(false); // track IME composition
+  const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
 
   // Floor plan analysis
   const [analyzingRooms, setAnalyzingRooms] = useState(false);
@@ -181,6 +216,7 @@ const AIDesignerSidebar: React.FC<Props> = ({
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const referenceFileInputRef = useRef<HTMLInputElement>(null);
   const prevFloorPlanName = useRef('');
   const prevRealScenesCount = useRef(0);
   const chatInFlightRef = useRef(false);
@@ -191,6 +227,45 @@ const AIDesignerSidebar: React.FC<Props> = ({
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 110)}px`;
+  };
+
+  const addReferenceFiles = (fileList: FileList | null) => {
+    if (!fileList) return;
+    setError(null);
+
+    const currentKeySet = new Set(referenceFiles.map(file => `${file.name}-${file.size}-${file.lastModified}`));
+    const nextFiles = [...referenceFiles];
+    const rejected: string[] = [];
+
+    Array.from(fileList).forEach(file => {
+      const fileKey = `${file.name}-${file.size}-${file.lastModified}`;
+      if (currentKeySet.has(fileKey)) return;
+      if (nextFiles.length >= MAX_REFERENCE_FILES) {
+        rejected.push(`${file.name}（已達 ${MAX_REFERENCE_FILES} 個上限）`);
+        return;
+      }
+      if (file.size > MAX_REFERENCE_FILE_SIZE) {
+        rejected.push(`${file.name}（超過 12MB）`);
+        return;
+      }
+
+      currentKeySet.add(fileKey);
+      nextFiles.push(file);
+    });
+
+    setReferenceFiles(nextFiles);
+    if (rejected.length > 0) {
+      setError(`部分檔案未加入：${rejected.join('、')}`);
+    }
+  };
+
+  const handleReferenceFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    addReferenceFiles(e.target.files);
+    if (referenceFileInputRef.current) referenceFileInputRef.current.value = '';
+  };
+
+  const removeReferenceFile = (index: number) => {
+    setReferenceFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   // Background compression: fold messages older than KEEP_RECENT into a running summary.
@@ -278,8 +353,9 @@ const AIDesignerSidebar: React.FC<Props> = ({
     if (chatInFlightRef.current || isLoading) return;
 
     setSelectedRoom(room);
+    const attachmentNote = referenceFiles.length > 0 ? `\n\n已附加參考資料：${summarizeReferenceFiles(referenceFiles)}` : '';
     const userMsg = `我想渲染${room.zhName}。`;
-    const userChatMsg: ChatMessage = { role: 'user', content: userMsg };
+    const userChatMsg: ChatMessage = { role: 'user', content: `${userMsg}${attachmentNote}` };
     const newHistory = [...messages, userChatMsg];
     setMessages(newHistory);
     chatInFlightRef.current = true;
@@ -288,7 +364,7 @@ const AIDesignerSidebar: React.FC<Props> = ({
       const reply = await chatWithDesigner(
         messages,
         userMsg,
-        undefined,
+        referenceFiles.length > 0 ? referenceFiles : undefined,
         aiContext,
         roomList,
         conversationSummary || undefined
@@ -311,11 +387,13 @@ const AIDesignerSidebar: React.FC<Props> = ({
       chatInFlightRef.current = false;
       setIsLoading(false);
     }
-  }, [messages, aiContext, roomList, isLoading, conversationSummary, compressHistory, animateAssistantMessage]);
+  }, [messages, aiContext, roomList, isLoading, referenceFiles, conversationSummary, compressHistory, animateAssistantMessage]);
 
   // Send user message
   const send = useCallback(async (text: string) => {
-    if (!text.trim() || isLoading || chatInFlightRef.current) return;
+    const cleanText = text.trim();
+    const hasReferences = referenceFiles.length > 0;
+    if ((!cleanText && !hasReferences) || isLoading || chatInFlightRef.current) return;
     setInput('');
     // Reset textarea height after clearing
     if (inputRef.current) {
@@ -323,7 +401,9 @@ const AIDesignerSidebar: React.FC<Props> = ({
     }
     setError(null);
 
-    const userMsg: ChatMessage = { role: 'user', content: text };
+    const messageText = cleanText || '請先閱讀我上傳的報價單或參考資料，整理重點並告訴我還缺哪些資訊。';
+    const attachmentNote = hasReferences ? `\n\n已附加參考資料：${summarizeReferenceFiles(referenceFiles)}` : '';
+    const userMsg: ChatMessage = { role: 'user', content: `${messageText}${attachmentNote}` };
     const nextHistory = [...messages, userMsg];
     setMessages(nextHistory);
     chatInFlightRef.current = true;
@@ -332,8 +412,8 @@ const AIDesignerSidebar: React.FC<Props> = ({
     try {
       const reply = await chatWithDesigner(
         messages,
-        text,
-        undefined,
+        messageText,
+        hasReferences ? referenceFiles : undefined,
         aiContext,
         roomList.length > 0 ? roomList : undefined,
         conversationSummary || undefined
@@ -357,7 +437,7 @@ const AIDesignerSidebar: React.FC<Props> = ({
       setIsLoading(false);
       inputRef.current?.focus();
     }
-  }, [messages, isLoading, aiContext, roomList, conversationSummary, compressHistory, animateAssistantMessage]);
+  }, [messages, isLoading, referenceFiles, aiContext, roomList, conversationSummary, compressHistory, animateAssistantMessage]);
 
   const clearAll = () => {
     setMessages([INITIAL_MESSAGE]);
@@ -365,6 +445,7 @@ const AIDesignerSidebar: React.FC<Props> = ({
     setSelectedRoom(null);
     setRenderPrompt('');
     setProjectBrief(null);
+    setReferenceFiles([]);
     onProjectBriefChange?.(null);
     setAnimatedAssistantIndex(null);
     setAnimatedAssistantText('');
@@ -564,6 +645,40 @@ const AIDesignerSidebar: React.FC<Props> = ({
       <div className="pt-2 space-y-2 flex-shrink-0 border-t border-neutral-800/60">
         {/* Textarea input — Claude-style: Enter to send, Shift+Enter for newline, IME-safe */}
         <div className="bg-neutral-800 border border-neutral-700 rounded-xl px-3 py-2 focus-within:border-neutral-500 transition-all flex flex-col gap-1.5">
+          <input
+            ref={referenceFileInputRef}
+            type="file"
+            className="hidden"
+            accept={REFERENCE_FILE_ACCEPT}
+            multiple
+            onChange={handleReferenceFileSelect}
+          />
+
+          {referenceFiles.length > 0 && (
+            <div className="flex flex-col gap-1 pb-1">
+              {referenceFiles.map((file, index) => (
+                <div
+                  key={`${file.name}-${file.size}-${file.lastModified}`}
+                  className="flex items-center gap-2 rounded-lg border border-neutral-700/70 bg-neutral-900/70 px-2 py-1.5"
+                >
+                  <FileText size={12} className="text-indigo-300 flex-shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-medium text-neutral-200 truncate">{file.name}</p>
+                    <p className="text-[9px] text-neutral-500">{formatFileSize(file.size)}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeReferenceFile(index)}
+                    className="w-5 h-5 rounded-md flex items-center justify-center text-neutral-500 hover:text-red-300 hover:bg-red-950/40 transition-all"
+                    title="移除此附件"
+                  >
+                    <X size={11} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           <textarea
             ref={inputRef}
             rows={1}
@@ -584,16 +699,29 @@ const AIDesignerSidebar: React.FC<Props> = ({
               setIsComposing(false);
               setInput((e.target as HTMLTextAreaElement).value);
             }}
-            placeholder={roomList.length > 0 && !selectedRoom ? '輸入想看的空間，例如客廳...' : '告訴 AI 你的生活需求...'}
+            placeholder={roomList.length > 0 && !selectedRoom ? '輸入想看的空間，例如客廳...' : '告訴 AI 你的生活需求，或上傳報價單/資料...'}
             disabled={isLoading || analyzingRooms}
             className="w-full bg-transparent text-xs text-white placeholder:text-neutral-600 outline-none resize-none leading-relaxed overflow-y-auto"
             style={{ minHeight: '20px', maxHeight: '110px' }}
           />
           {/* Action row */}
           <div className="flex items-center justify-between">
-            <span className="text-[9px] text-neutral-600 select-none">
-              Enter 送出　Shift+Enter 換行
-            </span>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <button
+                type="button"
+                onClick={() => referenceFileInputRef.current?.click()}
+                disabled={isLoading || analyzingRooms || referenceFiles.length >= MAX_REFERENCE_FILES}
+                className="w-6 h-6 text-neutral-500 hover:text-neutral-200 hover:bg-neutral-700 disabled:text-neutral-700 disabled:hover:bg-transparent rounded-lg flex items-center justify-center transition-all"
+                title="上傳報價單或參考資料"
+              >
+                <Paperclip size={11} />
+              </button>
+              <span className="text-[9px] text-neutral-600 select-none truncate">
+                {referenceFiles.length > 0
+                  ? `${referenceFiles.length} 個附件會送給 AI`
+                  : 'Enter 送出　Shift+Enter 換行'}
+              </span>
+            </div>
             <div className="flex items-center gap-1">
               <button
                 onClick={clearAll}
@@ -604,7 +732,7 @@ const AIDesignerSidebar: React.FC<Props> = ({
               </button>
               <button
                 onClick={() => send(input)}
-                disabled={!input.trim() || isLoading || analyzingRooms || isComposing}
+                disabled={(!input.trim() && referenceFiles.length === 0) || isLoading || analyzingRooms || isComposing}
                 className="w-6 h-6 bg-neutral-600 hover:bg-neutral-500 disabled:bg-neutral-700 disabled:text-neutral-600 text-white rounded-lg flex items-center justify-center transition-all"
               >
                 <Send size={11} />
