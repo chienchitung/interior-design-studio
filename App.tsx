@@ -559,13 +559,54 @@ const App: React.FC = () => {
 
           {/* Feature highlights */}
           <div className="mt-6 mb-6 grid grid-cols-3 gap-2 text-left">
-            {[
-              { icon: '🗣️', label: 'AI 設計訪談', desc: '需求釐清與風格建議' },
-              { icon: '🖼️', label: '生成居家圖', desc: '2D 寫實風格渲染' },
-              { icon: '📋', label: '設計檢核', desc: '空間衝突自動檢查' },
-            ].map(f => (
+            {([
+              {
+                icon: (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                    {/* Chat bubble body */}
+                    <path d="M20 2H4a2 2 0 0 0-2 2v14l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z"/>
+                    {/* 4-point sparkle star = AI */}
+                    <path d="M12 7.5l.65 1.85L14.5 10l-1.85.65L12 12.5l-.65-1.85L9.5 10l1.85-.65z" fill="currentColor" stroke="none"/>
+                  </svg>
+                ),
+                label: 'AI 設計訪談',
+                desc: '需求釐清與風格建議',
+              },
+              {
+                icon: (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                    {/* Photo frame */}
+                    <rect x="2" y="3" width="20" height="16" rx="2"/>
+                    {/* Landscape / interior perspective lines */}
+                    <path d="M2 14l5-5 4 4 3-3 6 5"/>
+                    {/* Sun / light source dot */}
+                    <circle cx="7.5" cy="7.5" r="1.5"/>
+                  </svg>
+                ),
+                label: '生成居家圖',
+                desc: '2D 寫實風格渲染',
+              },
+              {
+                icon: (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                    {/* Clipboard body */}
+                    <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
+                    {/* Clipboard tab */}
+                    <rect x="9" y="3" width="6" height="4" rx="1"/>
+                    {/* Check mark */}
+                    <path d="M9 12l2 2 4-4"/>
+                    {/* Bottom line */}
+                    <line x1="9" y1="17" x2="14" y2="17"/>
+                  </svg>
+                ),
+                label: '設計檢核',
+                desc: '空間衝突自動檢查',
+              },
+            ] as { icon: React.ReactNode; label: string; desc: string }[]).map(f => (
               <div key={f.label} className="bg-neutral-800/60 border border-neutral-700/50 rounded-xl p-3">
-                <div className="text-lg mb-1">{f.icon}</div>
+                <div className="w-7 h-7 rounded-lg bg-neutral-700/50 flex items-center justify-center mb-2 text-neutral-200">
+                  {f.icon}
+                </div>
                 <p className="text-[11px] font-semibold text-neutral-200 leading-tight">{f.label}</p>
                 <p className="text-[10px] text-neutral-500 mt-0.5 leading-tight">{f.desc}</p>
               </div>
