@@ -539,6 +539,7 @@ const App: React.FC = () => {
 
   if (!apiKeyReady) {
     return (
+      <>
       <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center p-4 relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none">
              <div className="absolute top-[-10%] right-[-5%] w-[500px] h-[500px] bg-neutral-900/50 rounded-full blur-3xl"></div>
@@ -567,6 +568,83 @@ const App: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {showApiKeyModal && (
+        <div
+          className="fixed inset-0 z-[300] bg-black/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={handleCancelApiKey}
+        >
+          <div
+            className="w-full max-w-md bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl p-8 animate-in zoom-in-95 duration-200"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-11 h-11 bg-white rounded-xl flex items-center justify-center shadow-lg shadow-white/10 flex-shrink-0">
+                <Key size={20} className="text-black" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-white leading-tight">Gemini API Key 設定</h2>
+                <p className="text-xs text-neutral-500 mt-0.5">設定您的 API Key 以啟用 AI 室內設計功能</p>
+              </div>
+            </div>
+
+            {error && (
+              <div className="mb-5 p-3 bg-red-900/20 border border-red-900/50 rounded-lg text-xs text-red-200 leading-relaxed">
+                {error}
+              </div>
+            )}
+
+            <div className="space-y-2 mb-6">
+              <label className="text-xs font-semibold text-neutral-400">API Key</label>
+              <div className="relative">
+                <input
+                  type={showApiKeyInput ? 'text' : 'password'}
+                  value={apiKeyInput}
+                  onChange={e => setApiKeyInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleSaveApiKey()}
+                  placeholder="AIzaSy..."
+                  autoFocus
+                  className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2.5 pr-10 text-sm text-white placeholder:text-neutral-600 focus:ring-2 focus:ring-white/20 focus:border-white/50 outline-none transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowApiKeyInput(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-200 transition-colors"
+                  tabIndex={-1}
+                >
+                  {showApiKeyInput ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+              <p className="text-[10px] text-neutral-600 leading-relaxed">
+                您的 API Key 僅儲存於本機瀏覽器（localStorage），不會傳送至任何第三方伺服器。
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSaveApiKey}
+                className="flex-1 py-2.5 bg-white hover:bg-neutral-100 text-black text-sm font-semibold rounded-lg transition-all active:scale-[0.97]"
+              >
+                儲存
+              </button>
+              <button
+                onClick={handleCancelApiKey}
+                className="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-sm font-medium rounded-lg transition-all active:scale-[0.97]"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleClearApiKey}
+                className="py-2.5 px-4 bg-transparent hover:bg-red-950/50 text-red-500 hover:text-red-400 border border-neutral-700 hover:border-red-800 text-sm font-medium rounded-lg transition-all active:scale-[0.97]"
+                title="清除已儲存的 API Key"
+              >
+                清除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      </>
     );
   }
 
