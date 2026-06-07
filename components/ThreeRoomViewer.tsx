@@ -164,28 +164,35 @@ const createViewerThrowPillow = (spec: ViewerPillowSpec): THREE.Group => {
   });
   const accentMat = new THREE.MeshStandardMaterial({ color: spec.accentColor, roughness: 0.9, metalness: 0 });
 
-  const body = createViewerSoftSquarePillowBody(0.5, 0.5, 0.15, fabricMat);
+  const pillowSize = 0.45;
+  const pillowDepth = 0.13;
+  const pipeLength = 0.365;
+  const pipeEdge = 0.194;
+  const pipeZ = 0.073;
+  const detailZ = 0.078;
+
+  const body = createViewerSoftSquarePillowBody(pillowSize, pillowSize, pillowDepth, fabricMat);
   body.castShadow = true;
   body.receiveShadow = true;
   group.add(body);
 
   const addPiping = (axis: 'x' | 'y', length: number, x: number, y: number) => {
     const pipe = createViewerPillowPipe(length, axis, seamMat);
-    pipe.position.set(x, y, 0.083);
+    pipe.position.set(x, y, pipeZ);
     pipe.castShadow = true;
     group.add(pipe);
   };
 
-  addPiping('x', 0.41, 0, 0.215);
-  addPiping('x', 0.41, 0, -0.215);
-  addPiping('y', 0.41, -0.215, 0);
-  addPiping('y', 0.41, 0.215, 0);
+  addPiping('x', pipeLength, 0, pipeEdge);
+  addPiping('x', pipeLength, 0, -pipeEdge);
+  addPiping('y', pipeLength, -pipeEdge, 0);
+  addPiping('y', pipeLength, pipeEdge, 0);
 
   [-1, 1].forEach((xDir) => {
     [-1, 1].forEach((yDir) => {
-      const corner = new THREE.Mesh(new THREE.SphereGeometry(0.015, 10, 8), seamMat);
+      const corner = new THREE.Mesh(new THREE.SphereGeometry(0.0135, 10, 8), seamMat);
       corner.scale.set(1, 0.78, 0.5);
-      corner.position.set(xDir * 0.216, yDir * 0.216, 0.086);
+      corner.position.set(xDir * pipeEdge, yDir * pipeEdge, pipeZ + 0.003);
       corner.castShadow = true;
       group.add(corner);
     });
@@ -193,7 +200,7 @@ const createViewerThrowPillow = (spec: ViewerPillowSpec): THREE.Group => {
 
   const addBand = (width: number, height: number, x: number, y: number, rotZ: number = 0) => {
     const band = createViewerRoundedBox(width, height, 0.006, accentMat, 0.003, 2);
-    band.position.set(x, y, 0.088);
+    band.position.set(x, y, detailZ);
     band.rotation.z = rotZ;
     band.castShadow = true;
     group.add(band);
@@ -201,21 +208,21 @@ const createViewerThrowPillow = (spec: ViewerPillowSpec): THREE.Group => {
 
   switch (spec.pattern) {
     case 'border':
-      addBand(0.25, 0.011, 0, 0.125);
-      addBand(0.25, 0.011, 0, -0.125);
-      addBand(0.011, 0.25, -0.125, 0);
-      addBand(0.011, 0.25, 0.125, 0);
+      addBand(0.225, 0.01, 0, 0.112);
+      addBand(0.225, 0.01, 0, -0.112);
+      addBand(0.01, 0.225, -0.112, 0);
+      addBand(0.01, 0.225, 0.112, 0);
       break;
     case 'center_band':
-      addBand(0.27, 0.042, 0, 0);
+      addBand(0.243, 0.038, 0, 0);
       break;
     case 'twin_stripe':
-      addBand(0.28, 0.011, 0, 0.055);
-      addBand(0.28, 0.011, 0, -0.055);
+      addBand(0.252, 0.01, 0, 0.05);
+      addBand(0.252, 0.01, 0, -0.05);
       break;
     case 'woven_cross':
-      addBand(0.28, 0.014, 0, 0, Math.PI / 4);
-      addBand(0.28, 0.014, 0, 0, -Math.PI / 4);
+      addBand(0.252, 0.013, 0, 0, Math.PI / 4);
+      addBand(0.252, 0.013, 0, 0, -Math.PI / 4);
       break;
     default:
       break;
@@ -1557,9 +1564,9 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
       padX = 0.60 + buffer;
       padZ = 0.30 + buffer;
     } else if (item === 'tv_console') {
-      // width: 2.0, depth: 0.45
-      padX = 1.00 + buffer;
-      padZ = 0.20 + buffer;
+      // width: 2.38, depth: 0.44
+      padX = 1.19 + buffer;
+      padZ = 0.22 + buffer;
     } else if (item === 'sideboard') {
       // width: 1.8, depth: 0.50
       padX = 0.90 + buffer;
@@ -3181,7 +3188,7 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
 
     // ---- ADD DYNAMIC WINDOW RENDER ----
     let actualW = windowWidth;
-    let actualH = windowWidth * 0.9; // maintain golden ratio standard
+    let actualH = windowWidth * 0.9;
     if (windowStyle === 'fixed_vertical') {
       actualW = 0.6;
       actualH = Math.min(roomH - 0.4, 2.0);
@@ -3190,9 +3197,6 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
       actualH = 0.4;
     } else if (windowStyle.includes('double')) {
       actualW = Math.min(roomW - 1.0, 1.8);
-      actualH = 1.1;
-    } else {
-      actualW = 1.1;
       actualH = 1.1;
     }
 
@@ -4576,7 +4580,12 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
 
       const metallicMat = new THREE.MeshStandardMaterial({ color: 0x2b2b2b, metalness: 0.85, roughness: 0.15 });
       const goldAccentMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.9, roughness: 0.1 });
-      const paperShadeMat = new THREE.MeshStandardMaterial({ color: 0xfffcf7, roughness: 0.9 });
+      const paperShadeMat = new THREE.MeshStandardMaterial({
+        color: customLampsOn ? 0xfff1d7 : 0xfffcf7,
+        roughness: 0.9,
+        emissive: customLampsOn ? new THREE.Color(tempColorHex) : new THREE.Color(0x000000),
+        emissiveIntensity: customLampsOn ? 0.12 : 0
+      });
 
       // Round heavy base
       const lBaseGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.04, 24);
@@ -4611,15 +4620,21 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
 
       // ONLY add the illuminated bulb & glowing light source if current lighting mode is turned on!
       if (customLampsOn) {
-        // High golden PointLight glowing downward from lamp head
-        const floorLampLight = new THREE.PointLight(tempColorHex, 4.5, 8);
-        floorLampLight.position.set(0.3, 1.45, 0); // local to lampStandGroup coordinate space!
-        floorLampLight.castShadow = true;
-        floorLampLight.shadow.bias = -0.002;
-        floorLampLight.shadow.normalBias = 0.05;
-        floorLampLight.shadow.mapSize.width = 1024;
-        floorLampLight.shadow.mapSize.height = 1024;
-        lampStandGroup.add(floorLampLight);
+        const floorLampSpot = new THREE.SpotLight(tempColorHex, 3.0, 5.2, Math.PI / 4.6, 0.7, 1.35);
+        floorLampSpot.position.set(0.3, 1.47, 0);
+        floorLampSpot.target.position.set(0.12, 0.42, 0.18);
+        floorLampSpot.castShadow = true;
+        floorLampSpot.shadow.bias = -0.0015;
+        floorLampSpot.shadow.normalBias = 0.05;
+        floorLampSpot.shadow.mapSize.width = 512;
+        floorLampSpot.shadow.mapSize.height = 512;
+        lampStandGroup.add(floorLampSpot);
+        lampStandGroup.add(floorLampSpot.target);
+
+        const floorLampFill = new THREE.PointLight(tempColorHex, 0.65, 1.5);
+        floorLampFill.position.set(0.3, 1.47, 0);
+        floorLampFill.castShadow = false;
+        lampStandGroup.add(floorLampFill);
 
         // Yellow Sphere glow indicator
         const glowGeo = new THREE.SphereGeometry(0.06, 8, 8);
@@ -4785,11 +4800,17 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
       tLampGroup.add(tShade);
 
       if (customLampsOn) {
-        // Table lamp warm point light
-        const tLight = new THREE.PointLight(tempColorHex, 2.0, 4);
-        tLight.position.set(0, 0.285, 0);
-        tLight.castShadow = true;
-        tLampGroup.add(tLight);
+        const tSpot = new THREE.SpotLight(tempColorHex, 1.35, 2.6, Math.PI / 3.8, 0.8, 1.4);
+        tSpot.position.set(0, 0.255, 0);
+        tSpot.target.position.set(0, -0.18, 0);
+        tSpot.castShadow = false;
+        tLampGroup.add(tSpot);
+        tLampGroup.add(tSpot.target);
+
+        const tFill = new THREE.PointLight(tempColorHex, 0.45, 1.15);
+        tFill.position.set(0, 0.255, 0);
+        tFill.castShadow = false;
+        tLampGroup.add(tFill);
 
         // Bulb indicator
         const tBulb = new THREE.Mesh(new THREE.SphereGeometry(0.02, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffddaa }));
@@ -4849,11 +4870,10 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
       mushGroup.add(ring);
 
       if (customLampsOn) {
-        // PointLight inside mushroom cap to emit warm amber glow
-        const light = new THREE.PointLight(tempColorHex, 2.2, 3);
+        // Short-range glow inside the glass cap, avoiding wall-sized light patches.
+        const light = new THREE.PointLight(tempColorHex, 1.25, 1.9);
         light.position.set(0, 0.18, 0);
-        light.castShadow = true;
-        light.shadow.bias = -0.001;
+        light.castShadow = false;
         mushGroup.add(light);
 
         // Core glow bulb
@@ -4937,11 +4957,17 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
       vinGroup.add(chainTassel);
 
       if (customLampsOn) {
-        // Point lights inside banker green glass shade
-        const vLight = new THREE.PointLight(tempColorHex, 2.0, 3.5);
-        vLight.position.set(-0.03, 0.21, -0.01);
-        vLight.castShadow = true;
-        vinGroup.add(vLight);
+        const vSpot = new THREE.SpotLight(tempColorHex, 1.25, 2.3, Math.PI / 4.2, 0.78, 1.35);
+        vSpot.position.set(-0.03, 0.21, -0.01);
+        vSpot.target.position.set(-0.03, -0.16, 0.02);
+        vSpot.castShadow = false;
+        vinGroup.add(vSpot);
+        vinGroup.add(vSpot.target);
+
+        const vGlow = new THREE.PointLight(tempColorHex, 0.35, 0.95);
+        vGlow.position.set(-0.03, 0.21, -0.01);
+        vGlow.castShadow = false;
+        vinGroup.add(vGlow);
       }
 
       const defaultVinX = -0.65;
@@ -4965,7 +4991,12 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
 
       const matteBlack = new THREE.MeshStandardMaterial({ color: 0x1f1f1f, roughness: 0.65, metalness: 0.2 });
       const goldenBronze = new THREE.MeshStandardMaterial({ color: 0xc5a059, metalness: 0.85, roughness: 0.25 });
-      const paperShade = new THREE.MeshStandardMaterial({ color: 0xfffefa, roughness: 0.9 });
+      const paperShade = new THREE.MeshStandardMaterial({
+        color: customLampsOn ? 0xfff3dc : 0xfffefa,
+        roughness: 0.88,
+        emissive: customLampsOn ? new THREE.Color(tempColorHex) : new THREE.Color(0x000000),
+        emissiveIntensity: customLampsOn ? 0.18 : 0
+      });
 
       // Clean round low profile metal baseline
       const basePlate = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.018, 24), matteBlack);
@@ -5010,15 +5041,38 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
       shadeGroup.add(pendantCone);
 
       if (customLampsOn) {
-        // Soft PointLight radiating down from shade opening
-        const cLight = new THREE.PointLight(tempColorHex, 3.8, 6.0);
-        cLight.position.set(0, -0.15, 0);
-        cLight.castShadow = true;
-        shadeGroup.add(cLight);
+        // Directional reading beam: the shade should cast light downward, not glow like a bare bulb.
+        const cSpot = new THREE.SpotLight(tempColorHex, 2.6, 4.8, Math.PI / 5.6, 0.72, 1.35);
+        cSpot.position.set(0, -0.095, 0);
+        cSpot.target.position.set(0, -0.9, 0.04);
+        cSpot.castShadow = true;
+        cSpot.shadow.bias = -0.001;
+        cSpot.shadow.normalBias = 0.045;
+        cSpot.shadow.mapSize.width = 512;
+        cSpot.shadow.mapSize.height = 512;
+        shadeGroup.add(cSpot);
+        shadeGroup.add(cSpot.target);
 
-        // Core bulb
-        const cBulb = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 8), new THREE.MeshBasicMaterial({ color: 0xfff0dd }));
-        cBulb.position.set(0, -0.09, 0);
+        // Low-radius fill only warms the shade interior, keeping it distinct from the other floor lamps.
+        const cFill = new THREE.PointLight(tempColorHex, 0.55, 1.35);
+        cFill.position.set(0, -0.115, 0);
+        cFill.castShadow = false;
+        shadeGroup.add(cFill);
+
+        const beamMat = new THREE.MeshBasicMaterial({
+          color: tempColorHex,
+          transparent: true,
+          opacity: 0.1,
+          depthWrite: false,
+          side: THREE.DoubleSide
+        });
+        const beam = new THREE.Mesh(new THREE.ConeGeometry(0.34, 1.05, 32, 1, true), beamMat);
+        beam.position.set(0, -0.58, 0.04);
+        shadeGroup.add(beam);
+
+        // Small recessed bulb indicator tucked inside the paper cone.
+        const cBulb = new THREE.Mesh(new THREE.SphereGeometry(0.016, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffe2b8 }));
+        cBulb.position.set(0, -0.105, 0);
         shadeGroup.add(cBulb);
       }
 
@@ -5085,11 +5139,21 @@ export const ThreeRoomViewer: React.FC<ThreeRoomViewerProps> = ({
           bulbGlow.position.set(podDistance + 0.02, 0, 0);
           podGroup.add(bulbGlow);
 
-          const rLight = new THREE.PointLight(tempColorHex, 2.0, 4.0);
-          rLight.position.set(podDistance + 0.04, 0, 0);
-          rLight.castShadow = true;
-          rLight.shadow.bias = -0.001;
-          podGroup.add(rLight);
+          const rSpot = new THREE.SpotLight(tempColorHex, 1.35, 3.0, Math.PI / 4.8, 0.62, 1.25);
+          rSpot.position.set(podDistance + 0.03, 0, 0);
+          rSpot.target.position.set(podDistance + 0.75, -0.08, 0);
+          rSpot.castShadow = true;
+          rSpot.shadow.bias = -0.001;
+          rSpot.shadow.normalBias = 0.04;
+          rSpot.shadow.mapSize.width = 512;
+          rSpot.shadow.mapSize.height = 512;
+          podGroup.add(rSpot);
+          podGroup.add(rSpot.target);
+
+          const rFill = new THREE.PointLight(tempColorHex, 0.28, 0.85);
+          rFill.position.set(podDistance + 0.02, 0, 0);
+          rFill.castShadow = false;
+          podGroup.add(rFill);
         }
 
         retroGroup.add(podGroup);

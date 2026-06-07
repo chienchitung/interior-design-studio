@@ -622,10 +622,10 @@ ${rooms.map(r => `• ${r.zhName}（${r.key}）：${r.description}`).join('\n')}
 注意事項：
 - 語氣親切、溫和、專業，有設計師的判斷力與陪伴感，像在陪屋主一起把家的樣子慢慢釐清，使用繁體中文
 - 少用工具式說明，多用自然提問引導屋主描述生活情境、喜好與限制
-- 每次回覆聚焦一個重點，2-3句話（渲染指令除外）
+- 每次回覆聚焦一個重點，2-3句話（渲染指令除外）；若正在閱讀報價單、需求表或規格資料，可用3-5個短段落整理重點、金額、疑點與下一步
 - 渲染指令要詳細具體，約80-120字
 - 專案資料必須是合法 JSON，未知欄位用空字串，不要猜測未確認的預算或家庭成員
-- 【重要】嚴禁使用 Markdown 格式：不可使用 **粗體**、*斜體*、# 標題、- 列點、數字編號等符號，只輸出純文字`;
+- 【重要】嚴禁使用 Markdown 格式：不可使用 **粗體**、*斜體*、# 標題或 - 列點。需要分段時，請用短標題加自然段落，例如「總金額：」、「主要項目：」、「需要確認：」，不要輸出任何星號`;
 
 // Compress older messages into a running summary to cap token growth.
 // existingSummary: previously accumulated summary (empty string if none).
@@ -671,7 +671,7 @@ export const chatWithDesigner = async (
 
     if (attachments && attachments.length > 0) {
       userParts.push({
-        text: `【屋主上傳的參考資料】\n${formatAttachmentSummary(attachments)}\n請把這些資料視為專案上下文。若是報價單、需求表或規格資料，請優先提取預算、品項、尺寸、材質、限制、已選設備與需要追問的不確定處。`,
+        text: `【屋主上傳的參考資料】\n${formatAttachmentSummary(attachments)}\n請把這些資料視為專案上下文。若是報價單、需求表或規格資料，請優先提取預算、品項、尺寸、材質、限制、已選設備與需要追問的不確定處。回覆請用清楚短段落，不要使用 Markdown 或任何星號。`,
       });
 
       for (const file of attachments) {

@@ -774,28 +774,35 @@ export const buildLivingRoomFurniture = (
     const seamMat = createFabricMaterial(seamColor, 0.93, 0, `sofa-square-pillow-seam-${style}-${spec.color}`);
     const accentMat = createFabricMaterial(spec.accentColor, 0.9, 0, `sofa-square-pillow-accent-${style}-${spec.accentColor}`);
 
-    const pCore = createSoftSquarePillowBody(0.5, 0.5, 0.15, pMat);
+    const pillowSize = 0.45;
+    const pillowDepth = 0.13;
+    const pipeLength = 0.365;
+    const pipeEdge = 0.194;
+    const pipeZ = 0.073;
+    const detailZ = 0.078;
+
+    const pCore = createSoftSquarePillowBody(pillowSize, pillowSize, pillowDepth, pMat);
     pCore.castShadow = true;
     pCore.receiveShadow = true;
     pGroup.add(pCore);
 
     const addPiping = (axis: 'x' | 'y', length: number, x: number, y: number) => {
       const pipe = createPillowPipe(length, axis, seamMat);
-      pipe.position.set(x, y, 0.083);
+      pipe.position.set(x, y, pipeZ);
       pipe.castShadow = true;
       pGroup.add(pipe);
     };
 
-    addPiping('x', 0.41, 0, 0.215);
-    addPiping('x', 0.41, 0, -0.215);
-    addPiping('y', 0.41, -0.215, 0);
-    addPiping('y', 0.41, 0.215, 0);
+    addPiping('x', pipeLength, 0, pipeEdge);
+    addPiping('x', pipeLength, 0, -pipeEdge);
+    addPiping('y', pipeLength, -pipeEdge, 0);
+    addPiping('y', pipeLength, pipeEdge, 0);
 
     [-1, 1].forEach((xDir) => {
       [-1, 1].forEach((yDir) => {
-        const corner = new THREE.Mesh(new THREE.SphereGeometry(0.015, 10, 8), seamMat);
+        const corner = new THREE.Mesh(new THREE.SphereGeometry(0.0135, 10, 8), seamMat);
         corner.scale.set(1, 0.78, 0.5);
-        corner.position.set(xDir * 0.216, yDir * 0.216, 0.086);
+        corner.position.set(xDir * pipeEdge, yDir * pipeEdge, pipeZ + 0.003);
         corner.castShadow = true;
         pGroup.add(corner);
       });
@@ -803,7 +810,7 @@ export const buildLivingRoomFurniture = (
 
     const addFrontBand = (width: number, height: number, x: number, y: number, rotZ: number = 0) => {
       const band = createRoundedBox(width, height, 0.006, accentMat, 0.003, 2);
-      band.position.set(x, y, 0.088);
+      band.position.set(x, y, detailZ);
       band.rotation.z = rotZ;
       band.castShadow = true;
       pGroup.add(band);
@@ -811,30 +818,30 @@ export const buildLivingRoomFurniture = (
 
     switch (spec.pattern) {
       case 'border':
-        addFrontBand(0.25, 0.011, 0, 0.125);
-        addFrontBand(0.25, 0.011, 0, -0.125);
-        addFrontBand(0.011, 0.25, -0.125, 0);
-        addFrontBand(0.011, 0.25, 0.125, 0);
+        addFrontBand(0.225, 0.01, 0, 0.112);
+        addFrontBand(0.225, 0.01, 0, -0.112);
+        addFrontBand(0.01, 0.225, -0.112, 0);
+        addFrontBand(0.01, 0.225, 0.112, 0);
         break;
       case 'center_band':
-        addFrontBand(0.27, 0.042, 0, 0);
+        addFrontBand(0.243, 0.038, 0, 0);
         break;
       case 'twin_stripe':
-        addFrontBand(0.28, 0.011, 0, 0.055);
-        addFrontBand(0.28, 0.011, 0, -0.055);
+        addFrontBand(0.252, 0.01, 0, 0.05);
+        addFrontBand(0.252, 0.01, 0, -0.05);
         break;
       case 'geo_disc': {
-        const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.006, 24), accentMat);
+        const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.006, 24), accentMat);
         disc.rotation.x = Math.PI / 2;
-        disc.position.set(-0.08, 0.072, 0.09);
+        disc.position.set(-0.072, 0.065, detailZ + 0.002);
         disc.castShadow = true;
         pGroup.add(disc);
-        addFrontBand(0.2, 0.018, 0.055, -0.065, -0.48);
+        addFrontBand(0.18, 0.016, 0.05, -0.058, -0.48);
         break;
       }
       case 'woven_cross':
-        addFrontBand(0.28, 0.014, 0, 0, Math.PI / 4);
-        addFrontBand(0.28, 0.014, 0, 0, -Math.PI / 4);
+        addFrontBand(0.252, 0.013, 0, 0, Math.PI / 4);
+        addFrontBand(0.252, 0.013, 0, 0, -Math.PI / 4);
         break;
       default:
         break;
@@ -986,47 +993,63 @@ export const buildLivingRoomFurniture = (
   consoleMesh.receiveShadow = true;
   tvConsoleGroup.add(consoleMesh);
 
-  // Elegant brass knobs and inset lines signifying doors / wooden drawers
+  // Clean floating cabinet face: panel gaps are visual grooves, not extra side handles.
   const handlesGroup = new THREE.Group();
-  const drawerSeamMat = new THREE.MeshStandardMaterial({ color: 0x181008, roughness: 0.9 });
-  
-  // Vertical seam cuts
-  const seamGeo = new THREE.BoxGeometry(0.005, 0.36, 0.005);
-  const seam1 = new THREE.Mesh(seamGeo, drawerSeamMat);
-  seam1.position.set(-0.79, 0.23, 0.22);
-  handlesGroup.add(seam1);
+  const frontPanelMat = createWoodMaterial(
+    blendHexColor(palette.woodColor, 0xffffff, palette.woodColor > 0x777777 ? 0.04 : 0.1),
+    palette.woodRoughness,
+    0.06
+  );
+  const drawerSeamMat = new THREE.MeshStandardMaterial({
+    color: blendHexColor(palette.woodColor, 0x070707, palette.woodColor > 0x777777 ? 0.42 : 0.2),
+    roughness: 0.92
+  });
 
-  const seam2 = seam1.clone();
-  seam2.position.set(0.0, 0.23, 0.22);
-  handlesGroup.add(seam2);
+  const panelOffsets = [-0.855, -0.285, 0.285, 0.855];
+  panelOffsets.forEach((panelX) => {
+    const panel = createRoundedBox(0.52, 0.29, 0.016, frontPanelMat, 0.018, 2);
+    panel.position.set(panelX, 0.24, 0.232);
+    panel.castShadow = true;
+    panel.receiveShadow = true;
+    handlesGroup.add(panel);
+  });
 
-  const seam3 = seam1.clone();
-  seam3.position.set(0.79, 0.23, 0.22);
-  handlesGroup.add(seam3);
+  const seamGeo = new THREE.BoxGeometry(0.008, 0.31, 0.018);
+  [-0.57, 0, 0.57].forEach((seamX) => {
+    const seam = new THREE.Mesh(seamGeo, drawerSeamMat);
+    seam.position.set(seamX, 0.24, 0.244);
+    handlesGroup.add(seam);
+  });
 
-  // Smart brass pull-handles
-  const pullGeo = new THREE.BoxGeometry(0.08, 0.012, 0.02);
-  const hOffsets = [-1.18, -0.4, 0.4, 1.18];
-  hOffsets.forEach(hX => {
-    const pull = new THREE.Mesh(pullGeo, brassMat);
-    pull.position.set(hX, 0.23, 0.225);
+  // Two centered recessed pulls keep the outer left/right panels visually clean.
+  const pullPocketMat = new THREE.MeshStandardMaterial({
+    color: blendHexColor(palette.metalColor, 0x111111, 0.58),
+    metalness: palette.metalMetalness,
+    roughness: Math.min(0.85, palette.metalRoughness + 0.35)
+  });
+  [-0.285, 0.285].forEach((hX) => {
+    const pull = createRoundedBox(0.12, 0.018, 0.012, pullPocketMat, 0.006, 2);
+    pull.position.set(hX, 0.245, 0.252);
     pull.castShadow = true;
     handlesGroup.add(pull);
   });
   tvConsoleGroup.add(handlesGroup);
 
-  // Slim elevated metal runner support legs
-  const supportRunner = createRoundedBox(2.3, 0.04, 0.38, consoleBaseMat, 0.018, 2);
-  supportRunner.position.y = 0.04;
-  tvConsoleGroup.add(supportRunner);
+  // Recessed floating shadow support, inset so no side bars appear as stray handles.
+  const floatingShadowMat = new THREE.MeshStandardMaterial({
+    color: 0x111111,
+    roughness: 0.85,
+    transparent: true,
+    opacity: 0.38
+  });
+  const floatingShadow = createRoundedBox(2.04, 0.035, 0.30, floatingShadowMat, 0.016, 2);
+  floatingShadow.position.set(0, 0.025, -0.02);
+  tvConsoleGroup.add(floatingShadow);
 
-  const rLegL = createRoundedBox(0.04, 0.04, 0.38, consoleBaseMat, 0.012, 2);
-  rLegL.position.set(-1.12, 0.02, 0);
-  tvConsoleGroup.add(rLegL);
-
-  const rLegR = rLegL.clone();
-  rLegR.position.x = 1.12;
-  tvConsoleGroup.add(rLegR);
+  const wallCleat = createRoundedBox(1.72, 0.055, 0.045, consoleBaseMat, 0.012, 2);
+  wallCleat.position.set(0, 0.14, -0.245);
+  wallCleat.castShadow = true;
+  tvConsoleGroup.add(wallCleat);
 
   // Modern television
   const tvFrame = createRoundedBox(1.64, 0.94, 0.04, new THREE.MeshStandardMaterial({ color: 0x080808, roughness: 0.2 }), 0.025, 2);
@@ -1143,45 +1166,49 @@ export const buildBedroomFurniture = (
   // Stacking is key: 2 large sleeping pillows tilted back, 2 decorative pillows propped forward
   const pillowMat = createFabricMaterial(0xffffff, 0.85, 0, 'sleeping-pillow');
   const frontPillowMat = createFabricMaterial(palette.pillowColors[0] || 0x5a6d7a, 0.8, 0, `deco-pillow-${style}`);
+  const sleepingPillowSize: [number, number, number] = [0.64, 0.12, 0.4];
+  const decoPillowSize: [number, number, number] = [0.42, 0.105, 0.3];
 
   if (isSingle) {
-    // Single Bed: Just one center sleeping pillow and one deco pillow stack
-    const pillowB = createRoundedBox(0.68, 0.14, 0.44, pillowMat, 0.07, 5);
-    pillowB.position.set(0, 0.63, -0.66);
-    pillowB.rotation.set(0.18, 0, 0);
+    // Single bed uses one centered sleep pillow plus a smaller decorative layer.
+    const pillowB = createRoundedBox(...sleepingPillowSize, pillowMat, 0.06, 5);
+    pillowB.position.set(0, 0.625, -0.69);
+    pillowB.rotation.set(0.2, 0, 0);
     pillowB.castShadow = true;
     bedGroup.add(pillowB);
 
-    const pillowF = createRoundedBox(0.5, 0.12, 0.36, frontPillowMat, 0.06, 5);
-    pillowF.position.set(0, 0.64, -0.48);
-    pillowF.rotation.set(0.38, 0.05, 0);
+    const pillowF = createRoundedBox(...decoPillowSize, frontPillowMat, 0.048, 5);
+    pillowF.position.set(0, 0.64, -0.5);
+    pillowF.rotation.set(0.34, 0.05, 0);
     pillowF.castShadow = true;
     bedGroup.add(pillowF);
   } else {
     // Back left sleeping pillow (tilted)
-    const pillowBL = createRoundedBox(0.68, 0.14, 0.44, pillowMat, 0.07, 5);
-    pillowBL.position.set(-0.46, 0.63, -0.66);
-    pillowBL.rotation.set(0.18, 0, 0);
+    const pillowBL = createRoundedBox(...sleepingPillowSize, pillowMat, 0.06, 5);
+    pillowBL.position.set(-0.39, 0.625, -0.69);
+    pillowBL.rotation.set(0.2, 0.025, -0.018);
     pillowBL.castShadow = true;
     bedGroup.add(pillowBL);
 
     // Back right sleeping pillow
     const pillowBR = pillowBL.clone();
-    pillowBR.position.x = 0.46;
+    pillowBR.position.x = 0.39;
+    pillowBR.rotation.y = -0.025;
+    pillowBR.rotation.z = 0.018;
     bedGroup.add(pillowBR);
 
     // Front left decorative pillow (more vertical tilt + colored accent)
-    const pillowFL = createRoundedBox(0.5, 0.12, 0.36, frontPillowMat, 0.06, 5);
-    pillowFL.position.set(-0.42, 0.64, -0.48);
-    pillowFL.rotation.set(0.38, 0.08, -0.05);
+    const pillowFL = createRoundedBox(...decoPillowSize, frontPillowMat, 0.048, 5);
+    pillowFL.position.set(-0.32, 0.64, -0.5);
+    pillowFL.rotation.set(0.34, 0.08, -0.045);
     pillowFL.castShadow = true;
     bedGroup.add(pillowFL);
 
     // Front right decorative pillow
     const pillowFR = pillowFL.clone();
-    pillowFR.position.x = 0.42;
+    pillowFR.position.x = 0.32;
     pillowFR.rotation.y = -0.08;
-    pillowFR.rotation.z = 0.05;
+    pillowFR.rotation.z = 0.045;
     bedGroup.add(pillowFR);
   }
 
@@ -2881,19 +2908,21 @@ export const buildStudioFurniture = (
   bedGroup.add(mattress);
 
   if (isDouble) {
-    const pillowL = createRoundedBox(0.75, 0.12, 0.45, mattressMat, 0.065, 5);
-    pillowL.position.set(-0.43, 0.44, -0.68);
-    pillowL.rotation.x = Math.PI / 16;
+    const pillowL = createRoundedBox(0.68, 0.105, 0.4, mattressMat, 0.055, 5);
+    pillowL.position.set(-0.37, 0.43, -0.7);
+    pillowL.rotation.set(Math.PI / 14, 0.02, -0.015);
     pillowL.castShadow = true;
     bedGroup.add(pillowL);
 
     const pillowR = pillowL.clone();
-    pillowR.position.x = 0.43;
+    pillowR.position.x = 0.37;
+    pillowR.rotation.y = -0.02;
+    pillowR.rotation.z = 0.015;
     bedGroup.add(pillowR);
   } else {
-    const pillow = createRoundedBox(0.9, 0.12, 0.45, mattressMat, 0.065, 5);
-    pillow.position.set(0, 0.44, -0.68);
-    pillow.rotation.x = Math.PI / 16;
+    const pillow = createRoundedBox(0.76, 0.105, 0.39, mattressMat, 0.055, 5);
+    pillow.position.set(0, 0.43, -0.7);
+    pillow.rotation.x = Math.PI / 14;
     pillow.castShadow = true;
     bedGroup.add(pillow);
   }

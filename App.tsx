@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { Wand2, Download, Maximize2, RefreshCw, Key, ChevronRight, CheckCircle2, ScanEye, Sparkles, Send, Armchair, X, Undo2, Redo2, History, Eye, EyeOff, Box, Lightbulb, SlidersHorizontal, ClipboardCheck, AlertTriangle, CircleDashed } from 'lucide-react';
+import { Wand2, Download, Maximize2, RefreshCw, Key, ChevronRight, CheckCircle2, Sparkles, Send, Armchair, X, Undo2, Redo2, History, Eye, EyeOff, Box, Lightbulb, SlidersHorizontal, ClipboardCheck, AlertTriangle, CircleDashed } from 'lucide-react';
 import ImageUpload from './components/ImageUpload';
 import Button from './components/Button';
 import AIDesignerSidebar from './components/AIDesignerSidebar';
 import { DesignConfig, DesignStyle, RoomType, ROOM_TYPE_LABELS, DESIGN_STYLE_LABELS, DesignVersionRecord, ProjectBrief } from './types';
-import { DESIGN_STYLES, ROOM_TYPES, SAMPLE_PROMPTS } from './constants';
-import { generateDesign, analyzeRoomImages, editDesignImage, extractSpatialContextForRendering, evaluateDesignChecklist } from './services/geminiService';
+import { DESIGN_STYLES, ROOM_TYPES } from './constants';
+import { generateDesign, editDesignImage, extractSpatialContextForRendering, evaluateDesignChecklist } from './services/geminiService';
 
 const ThreeRoomViewer = lazy(() =>
   import('./components/ThreeRoomViewer').then(m => ({ default: m.ThreeRoomViewer }))
@@ -123,10 +123,8 @@ const getStoredApiKey = () => {
 const App: React.FC = () => {
   const [apiKeyReady, setApiKeyReady] = useState(Boolean(process.env.API_KEY || getStoredApiKey()));
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const generatingRef = useRef(false);
-  const analyzingRef = useRef(false);
   const editingRef = useRef(false);
   const spatialContextCache = useRef<Map<string, string>>(new Map());
   const blobUrlsRef = useRef<Set<string>>(new Set());
@@ -363,36 +361,6 @@ const App: React.FC = () => {
           msg = err.message || msg;
       }
       setError(msg);
-  };
-
-  const handleAnalyze = async () => {
-    if (analyzingRef.current || isAnalyzing) return;
-
-    const filesToAnalyze: File[] = [];
-    if (config.floorPlan) filesToAnalyze.push(config.floorPlan);
-    if (config.realScenes.length > 0) filesToAnalyze.push(...config.realScenes);
-
-    if (filesToAnalyze.length === 0) {
-      setError("請上傳平面配置圖或至少一張實景照片後，再進行空間分析。");
-      return;
-    }
-
-    analyzingRef.current = true;
-    setIsAnalyzing(true);
-    setError(null);
-    try {
-      const analysisText = await analyzeRoomImages(filesToAnalyze);
-      // Append analysis to the current prompt
-      setConfig(prev => ({
-        ...prev,
-        prompt: (prev.prompt ? prev.prompt + "\n\n" : "") + `[Room Context: ${analysisText}]`
-      }));
-    } catch (err) {
-      handleError(err);
-    } finally {
-      analyzingRef.current = false;
-      setIsAnalyzing(false);
-    }
   };
 
   const handleGenerate = async () => {
@@ -805,10 +773,13 @@ const App: React.FC = () => {
 	              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${sidebarMode === 'ai' ? 'bg-white text-black shadow-sm' : 'text-neutral-400 hover:text-white'}`}
 	            >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="8" r="3"/>
-                <path d="M6 20v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
-	                <path d="M19 3l1.5 1.5L19 6l-1.5-1.5Z" strokeWidth="2"/>
-	              </svg>
+                <rect x="3" y="6" width="18" height="14" rx="3"/>
+                <circle cx="8.5" cy="13" r="1.5" fill="currentColor" stroke="none"/>
+                <circle cx="15.5" cy="13" r="1.5" fill="currentColor" stroke="none"/>
+                <path d="M9 17h6"/>
+                <path d="M12 6V3.5"/>
+                <circle cx="12" cy="2.5" r="1" fill="currentColor" stroke="none"/>
+              </svg>
 	              AI 引導
 	            </button>
 	          </div>
@@ -826,7 +797,12 @@ const App: React.FC = () => {
                 hasFloorPlan: !!config.floorPlan,
                 hasRealScene: config.realScenes.length > 0,
               }}
-              onProjectBriefChange={setCurrentProjectBrief}
+              onProjectBriefChange={(brief) => {
+                setCurrentProjectBrief(brief);
+                if (brief?.summary) {
+                  setConfig(prev => ({ ...prev, prompt: brief.summary }));
+                }
+              }}
               onGenerate={async (aiPrompt, projectBrief, aiSummary) => {
                 if (generatingRef.current || isGenerating) return;
 
@@ -873,71 +849,6 @@ const App: React.FC = () => {
 	        {/* Manual mode */}
 	        <div className={`p-6 space-y-6 pb-8 flex-1 ${sidebarMode === 'manual' ? '' : 'hidden'}`}>
 
-          {/* Homeowner-friendly project status */}
-          <div className="space-y-3">
-            <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-4 space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-bold text-white">先完成這 3 件事</h2>
-                  <p className="text-[11px] text-neutral-500 mt-1 leading-relaxed">
-                    不用自己寫 prompt，AI 會把照片和回答整理成設計方案。
-                  </p>
-                </div>
-                <span className="text-[10px] font-bold text-neutral-300 bg-neutral-800 border border-neutral-700 rounded-full px-2 py-0.5">
-                  {readyCount}/3
-                </span>
-              </div>
-              <div className="space-y-1.5">
-                {setupChecklist.map(item => (
-                  <div key={item.label} className="flex items-center gap-2 text-[11px]">
-                    <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold ${
-                      item.done ? 'bg-emerald-500 text-black' : 'bg-neutral-800 text-neutral-600 border border-neutral-700'
-                    }`}>
-                      {item.done ? '✓' : ''}
-                    </span>
-                    <span className={item.done ? 'text-neutral-200' : 'text-neutral-500'}>{item.label}</span>
-                  </div>
-                ))}
-              </div>
-              <button
-                onClick={() => setSidebarMode('ai')}
-                className="w-full py-2.5 bg-white hover:bg-neutral-100 text-black text-xs font-bold rounded-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2"
-              >
-                <Sparkles size={13} />
-                讓 AI 問我幾個問題
-              </button>
-            </div>
-
-            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="text-xs font-bold text-neutral-300">目前需求摘要</h3>
-                {currentProjectBrief?.summary && (
-                  <span className="text-[9px] text-emerald-400 bg-emerald-950/40 border border-emerald-900/50 rounded-full px-2 py-0.5">
-                    已整理
-                  </span>
-                )}
-              </div>
-              {currentProjectBrief?.summary ? (
-                <>
-                  <p className="text-[11px] text-neutral-300 leading-relaxed">{currentProjectBrief.summary}</p>
-                  {briefFacts.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      {briefFacts.slice(0, 5).map(fact => (
-                        <span key={fact} className="text-[9px] text-neutral-400 bg-neutral-800 border border-neutral-700 rounded-full px-2 py-0.5">
-                          {fact}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <p className="text-[11px] text-neutral-500 leading-relaxed">
-                  還沒有整理需求。建議先使用 AI 引導，系統會自動整理家庭成員、預算、風格和痛點。
-                </p>
-              )}
-            </div>
-          </div>
-
           {/* Section 0: Import Existing */}
           <div className="space-y-4">
             <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-500 flex items-center gap-2">
@@ -974,18 +885,6 @@ const App: React.FC = () => {
               files={config.realScenes}
               onFilesChange={(files) => setConfig(prev => ({ ...prev, realScenes: files }))}
             />
-            
-            {(config.floorPlan || config.realScenes.length > 0) && (
-              <Button 
-                variant="secondary" 
-                onClick={handleAnalyze} 
-                isLoading={isAnalyzing} 
-                className="w-full text-xs py-2 h-9"
-                icon={<ScanEye size={14} />}
-	              >
-	                {isAnalyzing ? "AI 正在讀取空間..." : "讓 AI 看看空間條件"}
-	              </Button>
-	            )}
 	          </div>
 
           <div className="h-px bg-neutral-800" />
@@ -1021,39 +920,16 @@ const App: React.FC = () => {
               </div>
             </div>
 
-
-
-	            <div className="space-y-2">
-	              <div className="flex justify-between items-center">
-	                <label className="text-xs font-medium text-neutral-400">AI 已整理的設計需求</label>
-	                {isAnalyzing
-	                  ? <span className="text-xs text-indigo-400 animate-pulse">正在讀取圖像細節...</span>
-	                  : <button
-	                      onClick={() => setSidebarMode('ai')}
-	                      className="flex items-center gap-1 text-[10px] font-bold text-indigo-400 hover:text-indigo-300 bg-indigo-950/60 hover:bg-indigo-900/60 border border-indigo-800/50 hover:border-indigo-700 px-2 py-0.5 rounded-full transition-all"
-	                    >
-	                      <Sparkles size={10} />
-	                      前往 AI 引導
-	                    </button>
-	                }
-	              </div>
-	              <textarea
-	                className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-white/20 focus:border-white/50 outline-none min-h-[120px] resize-y placeholder:text-neutral-600 transition-all"
-	                placeholder="可以留空，或到「AI 引導」讓 AI 問幾個問題後自動整理。也可以補充：想要明亮、收納多、不要深色、預算有限..."
-	                value={config.prompt}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-neutral-400">設計需求</label>
+              </div>
+              <textarea
+                className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-white/20 focus:border-white/50 outline-none min-h-[100px] resize-y placeholder:text-neutral-600 transition-all"
+                placeholder="補充需求，例如：明亮、收納多、不要深色、預算有限..."
+                value={config.prompt}
                 onChange={(e) => setConfig(prev => ({ ...prev, prompt: e.target.value }))}
               />
-              <div className="flex flex-wrap gap-2 mt-2">
-                {SAMPLE_PROMPTS.slice(0, 2).map((p, i) => (
-                  <button 
-                    key={i}
-                    onClick={() => setConfig(prev => ({ ...prev, prompt: p }))}
-                    className="text-[10px] bg-neutral-800 hover:bg-neutral-700 text-neutral-400 px-2 py-1 rounded-md transition-colors text-left truncate max-w-full"
-                  >
-                    {p.substring(0, 40)}...
-                  </button>
-                ))}
-              </div>
             </div>
           </div>
 
@@ -1105,14 +981,24 @@ const App: React.FC = () => {
 	                {error}
               </div>
             )}
-            <Button 
-              onClick={handleGenerate} 
-              isLoading={isGenerating} 
-              className="w-[85%] mx-auto py-3.5 bg-gradient-to-r from-neutral-200 to-white hover:from-white hover:to-neutral-100 !text-black shadow-lg shadow-white/5 font-semibold text-sm rounded-full tracking-wide flex items-center justify-center gap-2 hover:scale-[1.03] active:scale-[0.97] transition-all duration-300 border border-white/20 select-none"
-              icon={<Wand2 size={16} className="text-indigo-600 animate-pulse" />}
-	            >
-	              {isGenerating ? '生成渲染中...' : '產生我的設計方案'}
-	            </Button>
+            <button
+              onClick={handleGenerate}
+              disabled={isGenerating}
+              className="group relative w-full overflow-hidden py-3.5 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-700 hover:from-indigo-500 hover:to-violet-600 disabled:from-neutral-700 disabled:to-neutral-700 disabled:text-neutral-400 text-white font-bold text-sm flex items-center justify-center gap-2.5 shadow-lg shadow-indigo-950/60 hover:shadow-xl hover:shadow-indigo-900/40 hover:-translate-y-0.5 active:scale-[0.98] active:translate-y-0 transition-all duration-200 border border-indigo-400/20 select-none"
+            >
+              <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 pointer-events-none" />
+              {isGenerating ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin flex-shrink-0" />
+                  生成渲染中...
+                </>
+              ) : (
+                <>
+                  <Sparkles size={15} className="flex-shrink-0" />
+                  依直接設定產生方案
+                </>
+              )}
+            </button>
           </div>
         </div>
       </aside>
