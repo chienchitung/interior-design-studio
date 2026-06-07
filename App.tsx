@@ -556,16 +556,50 @@ const App: React.FC = () => {
           <p className="brand-subtitle">
             專業級 AI 空間視覺化工具
           </p>
-          
+
+          {/* Feature highlights */}
+          <div className="mt-6 mb-6 grid grid-cols-3 gap-2 text-left">
+            {[
+              { icon: '🗣️', label: 'AI 設計訪談', desc: '需求釐清與風格建議' },
+              { icon: '🖼️', label: '生成居家圖', desc: '2D 寫實風格渲染' },
+              { icon: '📋', label: '設計檢核', desc: '空間衝突自動檢查' },
+            ].map(f => (
+              <div key={f.label} className="bg-neutral-800/60 border border-neutral-700/50 rounded-xl p-3">
+                <div className="text-lg mb-1">{f.icon}</div>
+                <p className="text-[11px] font-semibold text-neutral-200 leading-tight">{f.label}</p>
+                <p className="text-[10px] text-neutral-500 mt-0.5 leading-tight">{f.desc}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Why API key */}
+          <div className="mb-5 text-left bg-neutral-800/40 border border-neutral-700/40 rounded-xl px-4 py-3 space-y-1.5">
+            <p className="text-xs font-semibold text-neutral-300">為什麼需要 Gemini API Key？</p>
+            <p className="text-[11px] text-neutral-500 leading-relaxed">
+              RoomWise 所有 AI 功能皆由 Google Gemini 驅動。為保護您的隱私，我們不代管任何 API Key——您使用自己的金鑰直接呼叫 AI，費用透明、資料不經第三方。
+            </p>
+            <p className="text-[11px] text-neutral-600">
+              🔒 Key 僅存於您的瀏覽器本機，不上傳任何伺服器。
+            </p>
+          </div>
+
           {error && (
-            <div className="mb-6 p-3 bg-red-900/20 border border-red-900/50 rounded-lg text-sm text-red-200">
+            <div className="mb-4 p-3 bg-red-900/20 border border-red-900/50 rounded-lg text-sm text-red-200">
               {error}
             </div>
           )}
 
           <Button onClick={handleSelectKey} className="w-full py-4 text-lg bg-white hover:bg-neutral-200 shadow-none font-semibold transition-all" style={{ color: '#000000' }}>
-            開始使用
+            設定 API Key 並開始
           </Button>
+          <a
+            href="https://aistudio.google.com/apikey"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-3 block text-xs text-neutral-600 hover:text-neutral-400 transition-colors"
+          >
+            還沒有 API Key？前往 Google AI Studio 免費取得 →
+          </a>
         </div>
       </div>
 
@@ -615,9 +649,19 @@ const App: React.FC = () => {
                   {showApiKeyInput ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
-              <p className="text-[10px] text-neutral-600 leading-relaxed">
-                您的 API Key 僅儲存於本機瀏覽器（localStorage），不會傳送至任何第三方伺服器。
-              </p>
+              <div className="flex items-center justify-between mt-1">
+                <p className="text-[10px] text-neutral-600 leading-relaxed">
+                  🔒 僅存於本機瀏覽器，不上傳任何伺服器。
+                </p>
+                <a
+                  href="https://aistudio.google.com/apikey"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[10px] text-neutral-500 hover:text-neutral-300 transition-colors whitespace-nowrap ml-2"
+                >
+                  免費取得 Key →
+                </a>
+              </div>
             </div>
 
             <div className="flex items-center gap-2">
@@ -701,9 +745,19 @@ const App: React.FC = () => {
                   {showApiKeyInput ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
-              <p className="text-[10px] text-neutral-600 leading-relaxed">
-                您的 API Key 僅儲存於本機瀏覽器（localStorage），不會傳送至任何第三方伺服器。
-              </p>
+              <div className="flex items-center justify-between mt-1">
+                <p className="text-[10px] text-neutral-600 leading-relaxed">
+                  🔒 僅存於本機瀏覽器，不上傳任何伺服器。
+                </p>
+                <a
+                  href="https://aistudio.google.com/apikey"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[10px] text-neutral-500 hover:text-neutral-300 transition-colors whitespace-nowrap ml-2"
+                >
+                  免費取得 Key →
+                </a>
+              </div>
             </div>
 
             {/* Actions */}
