@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Send, RefreshCw, CheckCircle2, Loader2, LayoutDashboard, AlertCircle, ImageIcon, Paperclip, FileText, X, Maximize2, Minimize2, Armchair, Sparkles } from 'lucide-react';
+import { Send, RefreshCw, CheckCircle2, Loader2, LayoutDashboard, AlertCircle, ImageIcon, Paperclip, FileText, X, Maximize2, Minimize2, Armchair, Sparkles, ChevronDown, Archive } from 'lucide-react';
 import {
   chatWithDesigner,
   summarizeHistory,
@@ -321,6 +321,32 @@ const ReadableMessageText = ({
   );
 };
 
+const CompactionBanner = ({ summary, surface }: { summary: string; surface: ChatSurface }) => {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className={`flex flex-col items-center gap-2 ${surface === 'expanded' ? 'py-4' : 'py-2 mr-1'}`}>
+      <div className="flex items-center gap-2 w-full">
+        <div className="flex-1 h-px bg-neutral-700/50" />
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-neutral-800/80 border border-neutral-700/60 text-neutral-500 hover:text-neutral-300 hover:border-neutral-600 transition-colors text-[10px] whitespace-nowrap select-none"
+        >
+          <Archive size={10} />
+          <span>已自動壓縮對話上下文</span>
+          <ChevronDown size={10} className={`transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
+        </button>
+        <div className="flex-1 h-px bg-neutral-700/50" />
+      </div>
+      {expanded && summary && (
+        <div className={`w-full text-neutral-400 bg-neutral-800/50 border border-neutral-700/40 rounded-lg leading-relaxed ${surface === 'expanded' ? 'text-xs px-4 py-3' : 'text-[10px] px-3 py-2'}`}>
+          <p className="text-neutral-500 font-semibold mb-1">對話摘要</p>
+          {summary}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ChatBubble = ({
   message,
   content,
@@ -412,6 +438,7 @@ const AIDesignerSidebar: React.FC<Props> = ({
   const KEEP_RECENT = 6; // keep last 3 rounds verbatim
   const [conversationSummary, setConversationSummary] = useState('');
   const isSummarizingRef = useRef(false);
+  const [compactionBanner, setCompactionBanner] = useState<{ summary: string } | null>(null);
 
   // Typewriter animation for the initial assistant message.
   // Triggered when the AI tab becomes active for the first time — the component is
@@ -547,6 +574,7 @@ const AIDesignerSidebar: React.FC<Props> = ({
     try {
       const newSummary = await summarizeHistory(currentSummary, toCompress);
       setConversationSummary(newSummary);
+      setCompactionBanner({ summary: newSummary });
       // Preserve recentBuffer + any messages that arrived during compression
       setMessages(prev => {
         const addedDuring = prev.slice(snapshot.length);
@@ -783,6 +811,10 @@ const AIDesignerSidebar: React.FC<Props> = ({
             上傳平面圖後 AI 自動識別空間<br />選擇房間 → 討論設計 → 精準渲染
           </p>
         </div>
+      )}
+
+      {compactionBanner && (
+        <CompactionBanner summary={compactionBanner.summary} surface={surface} />
       )}
 
       {messages.map((msg, i) => {
