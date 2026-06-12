@@ -1,4 +1,4 @@
-import { EmptySpaceLayout, EmptySpaceWall } from '../types';
+import { EmptySpaceIssue, EmptySpaceLayout, EmptySpaceWall } from '../types';
 
 type AxisBand = {
   start: number;
@@ -350,6 +350,126 @@ const snapWallEndpoints = (walls: EmptySpaceWall[]) => {
   return snapped;
 };
 
+const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+
+const getWallLengthCm = (wall: EmptySpaceWall) => Math.hypot(wall.x2 - wall.x1, wall.y2 - wall.y1);
+
+const getWallConfidence = (wall: EmptySpaceWall, bounds: EmptySpaceLayout['bounds']) => {
+  const length = getWallLengthCm(wall);
+  const thicknessScore = clamp01((wall.thicknessCm - 5) / 18);
+  const lengthScore = clamp01(length / 260);
+  const horizontal = Math.abs(wall.y2 - wall.y1) < Math.abs(wall.x2 - wall.x1);
+  const fixed = horizontal ? wall.y1 : wall.x1;
+  const boundaryDistance = horizontal
+    ? Math.min(Math.abs(fixed - bounds.minY), Math.abs(fixed - bounds.maxY))
+    : Math.min(Math.abs(fixed - bounds.minX), Math.abs(fixed - bounds.maxX));
+  const boundaryScore = boundaryDistance < 35 ? 1 : 0;
+
+  return clamp01(0.28 + lengthScore * 0.42 + thicknessScore * 0.18 + boundaryScore * 0.12);
+};
+
+const buildLayoutIssues = (
+  walls: EmptySpaceWall[],
+  scaleConfidence: EmptySpaceLayout['scale']['confidence'],
+  darkPixelRatio: number,
+): EmptySpaceIssue[] => {
+  const issues: EmptySpaceIssue[] = [];
+
+  if (scaleConfidence === 'estimated') {
+    issues.push({
+      id: 'scale-estimated',
+      severity: 'warning',
+      targetType: 'scale',
+      title: '比例尚未校正',
+      detail: '目前用圖面長邊估算尺寸。請選一段已知長度的牆線輸入實際尺寸，3D 白模會同步縮放。',
+    });
+  }
+
+  if (walls.length > 48 || darkPixelRatio > 0.18) {
+    issues.push({
+      id: 'many-dark-elements',
+      severity: 'warning',
+      targetType: 'model',
+      title: '可能混入家具或標註線',
+      detail: '圖面中的床、櫃體、窗框或尺寸標註可能被當成牆線。請在疊圖中刪除明顯不是牆的線段。',
+    });
+  }
+
+  walls
+    .filter(wall => (wall.confidence ?? 1) < 0.56)
+    .sort((a, b) => (a.confidence ?? 0) - (b.confidence ?? 0))
+    .slice(0, 6)
+    .forEach((wall, index) => {
+      issues.push({
+        id: `low-confidence-wall-${index + 1}`,
+        severity: 'info',
+        targetType: 'wall',
+        targetId: wall.id,
+        title: '牆線信心偏低',
+        detail: `${wall.id} 較短或較細，可能是家具、窗框或尺寸線。`,
+      });
+    });
+
+  issues.push({
+    id: 'openings-next-step',
+    severity: 'info',
+    targetType: 'opening',
+    title: '門窗尚待標記',
+    detail: '第一版先建立牆體白模；下一步會把門弧、窗框與牆上缺口轉成真正開口。',
+  });
+
+  return issues;
+};
+
+export const rescaleEmptySpaceLayout = (
+  layout: EmptySpaceLayout,
+  factor: number,
+): EmptySpaceLayout => {
+  if (!Number.isFinite(factor) || factor <= 0) return layout;
+
+  const scalePoint = (value: number) => value * factor;
+  const walls = layout.walls.map(wall => ({
+    ...wall,
+    x1: scalePoint(wall.x1),
+    y1: scalePoint(wall.y1),
+    x2: scalePoint(wall.x2),
+    y2: scalePoint(wall.y2),
+    thicknessCm: scalePoint(wall.thicknessCm),
+  }));
+
+  return {
+    ...layout,
+    generatedAt: Date.now(),
+    scale: {
+      cmPerPixel: layout.scale.cmPerPixel * factor,
+      confidence: 'calibrated',
+    },
+    bounds: {
+      minX: scalePoint(layout.bounds.minX),
+      minY: scalePoint(layout.bounds.minY),
+      maxX: scalePoint(layout.bounds.maxX),
+      maxY: scalePoint(layout.bounds.maxY),
+    },
+    walls,
+    openings: layout.openings.map(opening => ({
+      ...opening,
+      x: scalePoint(opening.x),
+      y: scalePoint(opening.y),
+      widthCm: scalePoint(opening.widthCm),
+    })),
+    rooms: layout.rooms.map(room => ({
+      ...room,
+      polygon: room.polygon.map(point => ({ x: scalePoint(point.x), y: scalePoint(point.y) })),
+      areaSqM: room.areaSqM ? room.areaSqM * factor * factor : room.areaSqM,
+    })),
+    issues: layout.issues.filter(issue => issue.targetType !== 'scale'),
+    diagnostics: {
+      ...layout.diagnostics,
+      averageWallConfidence: walls.reduce((sum, wall) => sum + (wall.confidence ?? 0), 0) / Math.max(1, walls.length),
+    },
+  };
+};
+
 export const analyzeFloorPlanForEmptySpace = async (file: File): Promise<EmptySpaceLayout> => {
   const image = await loadImage(file);
   const scaleToCanvas = Math.min(1, MAX_ANALYSIS_SIZE / Math.max(image.naturalWidth, image.naturalHeight));
@@ -417,8 +537,13 @@ export const analyzeFloorPlanForEmptySpace = async (file: File): Promise<EmptySp
   const cmPerPixel = ASSUMED_LONG_SIDE_CM / Math.max(drawingW, drawingH);
   const centerX = (minX + maxX) / 2;
   const centerY = (minY + maxY) / 2;
+  const bounds = {
+    minX: (minX - centerX) * cmPerPixel,
+    minY: (minY - centerY) * cmPerPixel,
+    maxX: (maxX - centerX) * cmPerPixel,
+    maxY: (maxY - centerY) * cmPerPixel,
+  };
 
-  const wallLength = (wall: EmptySpaceWall) => Math.hypot(wall.x2 - wall.x1, wall.y2 - wall.y1);
   const horizontalWalls: EmptySpaceWall[] = horizontalBands.map((band, index) => {
     const y = ((band.start + band.end) / 2 - centerY) * cmPerPixel;
     return {
@@ -443,13 +568,26 @@ export const analyzeFloorPlanForEmptySpace = async (file: File): Promise<EmptySp
   });
 
   const walls = snapWallEndpoints(mergeWalls([...horizontalWalls, ...verticalWalls]))
-    .filter(wall => wallLength(wall) >= 60)
-    .sort((a, b) => wallLength(b) - wallLength(a))
+    .filter(wall => getWallLengthCm(wall) >= 60)
+    .sort((a, b) => getWallLengthCm(b) - getWallLengthCm(a))
     .slice(0, 120)
     .map((wall, index) => ({
       ...wall,
       id: toWallId(wall.id.startsWith('h') ? 'h' : 'v', index),
+    }))
+    .map(wall => ({
+      ...wall,
+      confidence: getWallConfidence(wall, bounds),
+      pixel: {
+        x1: centerX + wall.x1 / cmPerPixel,
+        y1: centerY + wall.y1 / cmPerPixel,
+        x2: centerX + wall.x2 / cmPerPixel,
+        y2: centerY + wall.y2 / cmPerPixel,
+        thicknessPx: Math.max(1, wall.thicknessCm / cmPerPixel),
+      },
     }));
+  const averageWallConfidence = walls.reduce((sum, wall) => sum + (wall.confidence ?? 0), 0) / Math.max(1, walls.length);
+  const issues = buildLayoutIssues(walls, 'estimated', darkCount / (width * height));
 
   return {
     source: 'floor_plan',
@@ -459,21 +597,23 @@ export const analyzeFloorPlanForEmptySpace = async (file: File): Promise<EmptySp
       cmPerPixel,
       confidence: 'estimated',
     },
-    bounds: {
-      minX: (minX - centerX) * cmPerPixel,
-      minY: (minY - centerY) * cmPerPixel,
-      maxX: (maxX - centerX) * cmPerPixel,
-      maxY: (maxY - centerY) * cmPerPixel,
+    bounds,
+    sourceImage: {
+      widthPx: width,
+      heightPx: height,
+      drawingBoundsPx: { minX, minY, maxX, maxY },
     },
     walls,
     openings: [],
     rooms: [],
+    issues,
     diagnostics: {
       imageWidth: width,
       imageHeight: height,
       darkPixelRatio: darkCount / (width * height),
       detectedHorizontalBands: horizontalBands.length,
       detectedVerticalBands: verticalBands.length,
+      averageWallConfidence,
     },
   };
 };

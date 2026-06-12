@@ -149,7 +149,10 @@ export const FloorPlanEmptyViewer: React.FC<FloorPlanEmptyViewerProps> = ({ layo
       <div className="pointer-events-none absolute left-4 top-4 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 py-2 text-xs text-neutral-300 shadow-xl shadow-black/30 backdrop-blur-md">
         <p className="font-bold text-white">空屋格局預覽</p>
         <p className="mt-1 text-[11px] text-neutral-500">
-          偵測牆體 {layout.walls.length} 段 · 比例待校正
+          偵測牆體 {layout.walls.length} 段 · {layout.scale.confidence === 'calibrated' ? '比例已校正' : '比例待校正'}
+        </p>
+        <p className="mt-0.5 text-[11px] text-neutral-600">
+          待確認 {layout.issues.filter(issue => issue.severity !== 'info').length} 項 · 平均信心 {Math.round(layout.diagnostics.averageWallConfidence * 100)}%
         </p>
       </div>
     </div>

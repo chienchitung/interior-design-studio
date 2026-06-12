@@ -3,10 +3,11 @@ import { Wand2, Download, Maximize2, RefreshCw, Key, ChevronRight, CheckCircle2,
 import ImageUpload from './components/ImageUpload';
 import Button from './components/Button';
 import AIDesignerSidebar from './components/AIDesignerSidebar';
+import { FloorPlanAnalysisWorkbench } from './components/FloorPlanAnalysisWorkbench';
 import { DesignConfig, DesignStyle, RoomType, ROOM_TYPE_LABELS, DESIGN_STYLE_LABELS, DesignVersionRecord, ProjectBrief, EmptySpaceLayout } from './types';
 import { DESIGN_STYLES, ROOM_TYPES } from './constants';
 import { generateDesign, editDesignImage, extractSpatialContextForRendering, evaluateDesignChecklist } from './services/geminiService';
-import { analyzeFloorPlanForEmptySpace } from './services/floorPlanLayoutService';
+import { analyzeFloorPlanForEmptySpace, rescaleEmptySpaceLayout } from './services/floorPlanLayoutService';
 
 const ThreeRoomViewer = lazy(() =>
   import('./components/ThreeRoomViewer').then(m => ({ default: m.ThreeRoomViewer }))
@@ -392,6 +393,35 @@ const App: React.FC = () => {
     } finally {
       setIsAnalyzingFloorPlan(false);
     }
+  };
+
+  const handleCalibrateFloorPlanScale = (wallId: string, actualLengthCm: number) => {
+    setFloorPlanLayout(prev => {
+      if (!prev) return prev;
+      const wall = prev.walls.find(item => item.id === wallId);
+      if (!wall) return prev;
+      const estimatedLength = Math.hypot(wall.x2 - wall.x1, wall.y2 - wall.y1);
+      if (!Number.isFinite(actualLengthCm) || actualLengthCm <= 0 || estimatedLength <= 0) return prev;
+      return rescaleEmptySpaceLayout(prev, actualLengthCm / estimatedLength);
+    });
+  };
+
+  const handleRemoveFloorPlanWall = (wallId: string) => {
+    setFloorPlanLayout(prev => {
+      if (!prev) return prev;
+      const walls = prev.walls.filter(wall => wall.id !== wallId);
+      const averageWallConfidence = walls.reduce((sum, wall) => sum + (wall.confidence ?? 0), 0) / Math.max(1, walls.length);
+      return {
+        ...prev,
+        generatedAt: Date.now(),
+        walls,
+        issues: prev.issues.filter(issue => issue.targetId !== wallId),
+        diagnostics: {
+          ...prev.diagnostics,
+          averageWallConfidence,
+        },
+      };
+    });
   };
 
   const handleGenerate = async () => {
@@ -1421,19 +1451,12 @@ const App: React.FC = () => {
                     <div className="flex h-full w-full flex-col gap-2">
                       <div className="flex flex-shrink-0 items-center justify-between gap-3 rounded-xl border border-neutral-800 bg-neutral-950/80 px-3 py-2 text-xs shadow-lg shadow-black/20">
                         <div className="min-w-0">
-                          <p className="font-bold text-white truncate">已建立空屋格局</p>
+                          <p className="font-bold text-white truncate">平面圖解析工作台</p>
                           <p className="text-[11px] text-neutral-500 truncate">
-                            {floorPlanLayout.imageName} · 牆體 {floorPlanLayout.walls.length} 段 · 水平 {floorPlanLayout.diagnostics.detectedHorizontalBands} / 垂直 {floorPlanLayout.diagnostics.detectedVerticalBands}
+                            {floorPlanLayout.imageName} · 牆體 {floorPlanLayout.walls.length} 段 · 平均信心 {Math.round(floorPlanLayout.diagnostics.averageWallConfidence * 100)}% · {floorPlanLayout.scale.confidence === 'calibrated' ? '比例已校正' : '比例待校正'}
                           </p>
                         </div>
                         <div className="flex flex-shrink-0 items-center gap-1.5">
-                          <button
-                            onClick={handleAnalyzeFloorPlanLayout}
-                            disabled={isAnalyzingFloorPlan}
-                            className="rounded-full border border-neutral-800 px-2.5 py-1 text-[11px] font-bold text-neutral-400 transition-colors hover:border-neutral-700 hover:text-white disabled:opacity-50"
-                          >
-                            重新解析
-                          </button>
                           <button
                             onClick={() => setThreeDSpaceSource(null)}
                             className="rounded-full px-2.5 py-1 text-[11px] font-bold text-neutral-500 transition-colors hover:bg-neutral-900 hover:text-white"
@@ -1442,15 +1465,27 @@ const App: React.FC = () => {
                           </button>
                         </div>
                       </div>
-                      <div className="min-h-0 flex-1">
-                        <Suspense fallback={
-                          <div className="flex h-full items-center justify-center gap-3 rounded-xl border border-neutral-800 bg-neutral-950 text-sm text-neutral-500">
-                            <div className="w-4 h-4 border-2 border-neutral-600 border-t-white rounded-full animate-spin" />
-                            載入空屋 3D...
-                          </div>
-                        }>
-                          <FloorPlanEmptyViewer layout={floorPlanLayout} />
-                        </Suspense>
+                      <div className="grid min-h-0 flex-1 grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.45fr)]">
+                        {config.floorPlan && (
+                          <FloorPlanAnalysisWorkbench
+                            floorPlan={config.floorPlan}
+                            layout={floorPlanLayout}
+                            isAnalyzing={isAnalyzingFloorPlan}
+                            onCalibrateScale={handleCalibrateFloorPlanScale}
+                            onRemoveWall={handleRemoveFloorPlanWall}
+                            onReanalyze={handleAnalyzeFloorPlanLayout}
+                          />
+                        )}
+                        <div className="min-h-[280px] xl:min-h-0">
+                          <Suspense fallback={
+                            <div className="flex h-full items-center justify-center gap-3 rounded-xl border border-neutral-800 bg-neutral-950 text-sm text-neutral-500">
+                              <div className="w-4 h-4 border-2 border-neutral-600 border-t-white rounded-full animate-spin" />
+                              載入空屋 3D...
+                            </div>
+                          }>
+                            <FloorPlanEmptyViewer layout={floorPlanLayout} />
+                          </Suspense>
+                        </div>
                       </div>
                     </div>
                   ) : (

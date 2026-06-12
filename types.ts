@@ -106,6 +106,14 @@ export interface EmptySpaceWall {
   x2: number;
   y2: number;
   thicknessCm: number;
+  confidence?: number;
+  pixel?: {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    thicknessPx: number;
+  };
 }
 
 export interface EmptySpaceOpening {
@@ -115,12 +123,25 @@ export interface EmptySpaceOpening {
   y: number;
   widthCm: number;
   rotation: number;
+  hostWallId?: string;
+  confidence?: number;
 }
 
 export interface EmptySpaceRoom {
   id: string;
   name: string;
   polygon: Point2D[];
+  type?: RoomType | 'corridor' | 'storage' | 'unknown';
+  areaSqM?: number;
+}
+
+export interface EmptySpaceIssue {
+  id: string;
+  severity: 'info' | 'warning' | 'error';
+  targetType: 'scale' | 'wall' | 'opening' | 'room' | 'model';
+  targetId?: string;
+  title: string;
+  detail: string;
 }
 
 export interface EmptySpaceLayout {
@@ -137,14 +158,26 @@ export interface EmptySpaceLayout {
     maxX: number;
     maxY: number;
   };
+  sourceImage: {
+    widthPx: number;
+    heightPx: number;
+    drawingBoundsPx: {
+      minX: number;
+      minY: number;
+      maxX: number;
+      maxY: number;
+    };
+  };
   walls: EmptySpaceWall[];
   openings: EmptySpaceOpening[];
   rooms: EmptySpaceRoom[];
+  issues: EmptySpaceIssue[];
   diagnostics: {
     imageWidth: number;
     imageHeight: number;
     darkPixelRatio: number;
     detectedHorizontalBands: number;
     detectedVerticalBands: number;
+    averageWallConfidence: number;
   };
 }
