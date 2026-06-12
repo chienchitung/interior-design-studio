@@ -93,3 +93,58 @@ export interface DesignVersionRecord {
   checklist?: DesignChecklistItem[];
   checklistStatus?: 'idle' | 'checking' | 'done' | 'error';
 }
+
+export interface Point2D {
+  x: number;
+  y: number;
+}
+
+export interface EmptySpaceWall {
+  id: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  thicknessCm: number;
+}
+
+export interface EmptySpaceOpening {
+  id: string;
+  type: 'door' | 'window';
+  x: number;
+  y: number;
+  widthCm: number;
+  rotation: number;
+}
+
+export interface EmptySpaceRoom {
+  id: string;
+  name: string;
+  polygon: Point2D[];
+}
+
+export interface EmptySpaceLayout {
+  source: 'floor_plan';
+  imageName: string;
+  generatedAt: number;
+  scale: {
+    cmPerPixel: number;
+    confidence: 'estimated' | 'calibrated';
+  };
+  bounds: {
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+  };
+  walls: EmptySpaceWall[];
+  openings: EmptySpaceOpening[];
+  rooms: EmptySpaceRoom[];
+  diagnostics: {
+    imageWidth: number;
+    imageHeight: number;
+    darkPixelRatio: number;
+    detectedHorizontalBands: number;
+    detectedVerticalBands: number;
+  };
+}

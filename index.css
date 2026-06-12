@@ -5,25 +5,44 @@ body {
 }
 
 .brand-wordmark {
-  font-family: 'Figtree', sans-serif;
-  font-size: clamp(2.25rem, 6vw, 3rem);
-  letter-spacing: -0.04em;
+  font-family: 'Manrope', sans-serif;
+  font-size: var(--brand-wordmark-size, clamp(2.25rem, 6vw, 3rem));
+  letter-spacing: 0;
   line-height: 1;
   display: block;
 }
 
+.brand-wordmark--sidebar {
+  --brand-wordmark-size: 1.125rem;
+}
+
+.brand-wordmark--chat {
+  --brand-wordmark-size: 1.125rem;
+}
+
+.brand-wordmark--chat-expanded {
+  --brand-wordmark-size: 1.34rem;
+}
+
+.brand-room,
+.brand-wise {
+  display: inline-block;
+  font-family: 'Manrope', sans-serif;
+}
+
 .brand-room {
-  font-weight: 400;
+  font-weight: 500;
   color: #a8a29e;
 }
 
 .brand-wise {
-  font-weight: 600;
+  margin-left: 0.015em;
+  font-weight: 800;
   color: #ffffff;
 }
 
 .brand-subtitle {
-  font-family: 'Figtree', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-size: 0.875rem;
   font-weight: 400;
   color: #737373;

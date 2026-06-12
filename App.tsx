@@ -1,14 +1,19 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { Wand2, Download, Maximize2, RefreshCw, Key, ChevronRight, CheckCircle2, Sparkles, Send, Armchair, X, Undo2, Redo2, History, Eye, EyeOff, Box, Lightbulb, SlidersHorizontal, ClipboardCheck, AlertTriangle, CircleDashed } from 'lucide-react';
+import { Wand2, Download, Maximize2, RefreshCw, Key, ChevronRight, CheckCircle2, Sparkles, Send, Armchair, X, Undo2, Redo2, History, Eye, EyeOff, Box, Lightbulb, SlidersHorizontal, ClipboardCheck, AlertTriangle, CircleDashed, ScanLine } from 'lucide-react';
 import ImageUpload from './components/ImageUpload';
 import Button from './components/Button';
 import AIDesignerSidebar from './components/AIDesignerSidebar';
-import { DesignConfig, DesignStyle, RoomType, ROOM_TYPE_LABELS, DESIGN_STYLE_LABELS, DesignVersionRecord, ProjectBrief } from './types';
+import { DesignConfig, DesignStyle, RoomType, ROOM_TYPE_LABELS, DESIGN_STYLE_LABELS, DesignVersionRecord, ProjectBrief, EmptySpaceLayout } from './types';
 import { DESIGN_STYLES, ROOM_TYPES } from './constants';
 import { generateDesign, editDesignImage, extractSpatialContextForRendering, evaluateDesignChecklist } from './services/geminiService';
+import { analyzeFloorPlanForEmptySpace } from './services/floorPlanLayoutService';
 
 const ThreeRoomViewer = lazy(() =>
   import('./components/ThreeRoomViewer').then(m => ({ default: m.ThreeRoomViewer }))
+);
+
+const FloorPlanEmptyViewer = lazy(() =>
+  import('./components/FloorPlanEmptyViewer').then(m => ({ default: m.FloorPlanEmptyViewer }))
 );
 
 class ThreeViewerErrorBoundary extends React.Component<
@@ -174,6 +179,7 @@ const App: React.FC = () => {
 
   // View mode & Refinement state for Solution A (3D Sandbox)
   const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
+  const [threeDSpaceSource, setThreeDSpaceSource] = useState<'manual' | 'floor_plan' | null>(null);
   const [activeWorkflowStep, setActiveWorkflowStep] = useState<1 | 2 | 3 | 4>(1);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [showTipsPopover, setShowTipsPopover] = useState(false);
@@ -221,6 +227,9 @@ const App: React.FC = () => {
     floorPlan: null,
     realScenes: []
   });
+  const [floorPlanLayout, setFloorPlanLayout] = useState<EmptySpaceLayout | null>(null);
+  const [isAnalyzingFloorPlan, setIsAnalyzingFloorPlan] = useState(false);
+  const [floorPlanLayoutError, setFloorPlanLayoutError] = useState<string | null>(null);
 
   const hasSpaceReference = Boolean(config.floorPlan || config.realScenes.length > 0);
   const hasBrief = Boolean(currentProjectBrief?.summary || config.prompt.trim());
@@ -259,8 +268,8 @@ const App: React.FC = () => {
       result: '完成後會得到設計圖、版本紀錄，以及好不好住的初步檢查。',
     },
     4: {
-      title: '檢查配置',
-      now: '切到配置檢查，從平面、正面和自由視角看家具大小、走道寬度與門窗位置。',
+      title: '3D 空間配置',
+      now: '切到 3D 空間配置，從平面、正面和自由視角看家具大小、走道寬度與門窗位置。',
       ai: 'AI 會保留你的設計方向，協助把漂亮的圖回到可居住的尺寸與動線。',
       result: '完成後會得到更接近可溝通、可估價的家具配置參考。',
     },
@@ -361,6 +370,28 @@ const App: React.FC = () => {
           msg = err.message || msg;
       }
       setError(msg);
+  };
+
+  const handleFloorPlanFileChange = (file: File | null) => {
+    setConfig(prev => ({ ...prev, floorPlan: file }));
+    setFloorPlanLayout(null);
+    setFloorPlanLayoutError(null);
+  };
+
+  const handleAnalyzeFloorPlanLayout = async () => {
+    if (!config.floorPlan || isAnalyzingFloorPlan) return;
+
+    setIsAnalyzingFloorPlan(true);
+    setFloorPlanLayoutError(null);
+    try {
+      const layout = await analyzeFloorPlanForEmptySpace(config.floorPlan);
+      setFloorPlanLayout(layout);
+    } catch (err: any) {
+      setFloorPlanLayout(null);
+      setFloorPlanLayoutError(err?.message || '平面圖解析失敗，請換一張更清楚的圖。');
+    } finally {
+      setIsAnalyzingFloorPlan(false);
+    }
   };
 
   const handleGenerate = async () => {
@@ -915,10 +946,10 @@ const App: React.FC = () => {
 	              <Armchair size={22} className="text-black" strokeWidth={2.5} />
 	            </div>
 	            <div className="flex flex-col justify-center h-10">
-	              <h1 className="text-lg leading-none mb-1" style={{ fontFamily: 'Figtree, sans-serif', letterSpacing: '-0.02em' }}>
-                <span style={{ fontWeight: 400, color: '#A8A29E' }}>Room</span><span style={{ fontWeight: 600, color: '#FFFFFF' }}>Wise</span>
+	              <h1 className="brand-wordmark brand-wordmark--sidebar mb-1">
+                <span className="brand-room">Room</span><span className="brand-wise">Wise</span>
               </h1>
-	              <span className="text-[10px] font-bold tracking-[0.08em] text-neutral-500 uppercase leading-none">回答問題，上傳照片，就能開始規劃</span>
+	              <span className="font-['Manrope'] text-[10px] font-bold tracking-[0.08em] text-neutral-500 uppercase leading-none">回答問題，上傳照片，就能開始規劃</span>
 	            </div>
 	          </div>
 	          {/* Mode toggle */}
@@ -1037,7 +1068,7 @@ const App: React.FC = () => {
 	              label="平面圖或格局圖" 
 	              description="有尺寸最好，沒有也可以先上傳"
 	              file={config.floorPlan} 
-	              onFileChange={(f) => setConfig(prev => ({ ...prev, floorPlan: f }))} 
+	              onFileChange={handleFloorPlanFileChange} 
 	            />
 	            <ImageUpload
 	              label="現場照片"
@@ -1206,9 +1237,18 @@ const App: React.FC = () => {
                      className={`px-2.5 py-1 text-[11px] rounded-full font-bold select-none flex items-center gap-1.5 transition-all duration-300 ${viewMode === '3d' ? 'bg-white text-black shadow-md' : 'text-neutral-400 hover:text-white'}`}
                    >
                      <Box size={12} />
-                     檢查配置
+                     3D 空間配置
                    </button>
                  </div>
+
+                 {viewMode === '3d' && threeDSpaceSource && (
+                   <button
+                     onClick={() => setThreeDSpaceSource(null)}
+                     className="px-2.5 py-1 text-[11px] rounded-full font-bold border border-neutral-800 text-neutral-500 hover:text-white hover:border-neutral-700 transition-colors flex-shrink-0"
+                   >
+                     更換方式
+                   </button>
+                 )}
 
                  {displayImage && (
                     <div className="flex items-center gap-2 min-w-0 xs:flex">
@@ -1297,7 +1337,7 @@ const App: React.FC = () => {
               },
               {
                 step: 4 as const,
-                title: "檢查配置",
+                title: "3D 空間配置",
                 subtitle: "家具大小與走道",
                 active: activeWorkflowStep === 4,
                 done: viewMode === '3d'
@@ -1344,7 +1384,118 @@ const App: React.FC = () => {
         {/* Canvas Area */}
         <div className="flex-1 flex flex-col items-center justify-center p-3 md:p-5 overflow-hidden relative min-h-0 min-w-0">
           {viewMode === '3d' ? (
-             <div className="w-full h-full flex flex-col items-center justify-center animate-in fade-in duration-500 min-h-0">
+             <div className="w-full h-full animate-in fade-in duration-500 min-h-0">
+                {!threeDSpaceSource ? (
+                  <div className="h-full w-full flex items-center justify-center">
+                    <div className="w-full max-w-xl rounded-2xl border border-neutral-800 bg-neutral-950/80 p-4 shadow-2xl shadow-black/30">
+                      <div className="mb-4 text-center">
+                        <p className="text-sm font-bold text-white">建立 3D 空間配置</p>
+                        <p className="mt-1 text-xs text-neutral-500">選擇空間來源後再進入配置工具</p>
+                      </div>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <button
+                          onClick={() => setThreeDSpaceSource('manual')}
+                          className="group flex min-h-24 flex-col items-start justify-between rounded-xl border border-neutral-800 bg-neutral-900/70 p-4 text-left transition-all hover:border-neutral-600 hover:bg-neutral-900"
+                        >
+                          <span className="flex items-center gap-2 text-neutral-200 group-hover:text-white transition-colors">
+                            <Box size={16} strokeWidth={1.9} />
+                            <span className="text-sm font-bold">自由建立</span>
+                          </span>
+                          <span className="text-xs leading-relaxed text-neutral-500">直接進入目前的 3D 配置工具</span>
+                        </button>
+                        <button
+                          onClick={() => setThreeDSpaceSource('floor_plan')}
+                          className="group flex min-h-24 flex-col items-start justify-between rounded-xl border border-neutral-800 bg-neutral-900/70 p-4 text-left transition-all hover:border-neutral-600 hover:bg-neutral-900"
+                        >
+                          <span className="flex items-center gap-2 text-neutral-200 group-hover:text-white transition-colors">
+                            <ScanLine size={16} strokeWidth={1.9} />
+                            <span className="text-sm font-bold">平面圖空屋</span>
+                          </span>
+                          <span className="text-xs leading-relaxed text-neutral-500">先建立牆、門窗與空屋格局</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : threeDSpaceSource === 'floor_plan' ? (
+                  floorPlanLayout ? (
+                    <div className="flex h-full w-full flex-col gap-2">
+                      <div className="flex flex-shrink-0 items-center justify-between gap-3 rounded-xl border border-neutral-800 bg-neutral-950/80 px-3 py-2 text-xs shadow-lg shadow-black/20">
+                        <div className="min-w-0">
+                          <p className="font-bold text-white truncate">已建立空屋格局</p>
+                          <p className="text-[11px] text-neutral-500 truncate">
+                            {floorPlanLayout.imageName} · 牆體 {floorPlanLayout.walls.length} 段 · 水平 {floorPlanLayout.diagnostics.detectedHorizontalBands} / 垂直 {floorPlanLayout.diagnostics.detectedVerticalBands}
+                          </p>
+                        </div>
+                        <div className="flex flex-shrink-0 items-center gap-1.5">
+                          <button
+                            onClick={handleAnalyzeFloorPlanLayout}
+                            disabled={isAnalyzingFloorPlan}
+                            className="rounded-full border border-neutral-800 px-2.5 py-1 text-[11px] font-bold text-neutral-400 transition-colors hover:border-neutral-700 hover:text-white disabled:opacity-50"
+                          >
+                            重新解析
+                          </button>
+                          <button
+                            onClick={() => setThreeDSpaceSource(null)}
+                            className="rounded-full px-2.5 py-1 text-[11px] font-bold text-neutral-500 transition-colors hover:bg-neutral-900 hover:text-white"
+                          >
+                            返回
+                          </button>
+                        </div>
+                      </div>
+                      <div className="min-h-0 flex-1">
+                        <Suspense fallback={
+                          <div className="flex h-full items-center justify-center gap-3 rounded-xl border border-neutral-800 bg-neutral-950 text-sm text-neutral-500">
+                            <div className="w-4 h-4 border-2 border-neutral-600 border-t-white rounded-full animate-spin" />
+                            載入空屋 3D...
+                          </div>
+                        }>
+                          <FloorPlanEmptyViewer layout={floorPlanLayout} />
+                        </Suspense>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="h-full w-full flex items-center justify-center">
+                      <div className="w-full max-w-lg rounded-2xl border border-neutral-800 bg-neutral-950/80 p-4 shadow-2xl shadow-black/30">
+                        <div className="mb-4 flex items-start justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-bold text-white">平面圖空屋</p>
+                            <p className="mt-1 text-xs leading-relaxed text-neutral-500">
+                              {config.floorPlan
+                                ? '已取得平面圖；先用自動解析建立第一版空屋。'
+                                : '上傳平面圖後，才會建立對應的空屋 3D。'}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => setThreeDSpaceSource(null)}
+                            className="rounded-full px-2.5 py-1 text-[11px] font-bold text-neutral-500 hover:bg-neutral-900 hover:text-white transition-colors"
+                          >
+                            返回
+                          </button>
+                        </div>
+                        <ImageUpload
+                          compact
+                          label="平面圖或格局圖"
+                          description="上傳後進行空屋建立"
+                          file={config.floorPlan}
+                          onFileChange={handleFloorPlanFileChange}
+                        />
+                        {floorPlanLayoutError && (
+                          <p className="mt-3 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+                            {floorPlanLayoutError}
+                          </p>
+                        )}
+                        <button
+                          onClick={handleAnalyzeFloorPlanLayout}
+                          disabled={!config.floorPlan || isAnalyzingFloorPlan}
+                          className="mt-3 w-full rounded-lg bg-white px-3 py-2 text-xs font-bold text-black transition-colors hover:bg-neutral-200 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+                        >
+                          {isAnalyzingFloorPlan ? '解析中...' : '解析平面圖並建立空屋'}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                ) : (
+                <div className="w-full h-full min-h-0">
                 <ThreeViewerErrorBoundary>
                 <Suspense fallback={
                   <div className="flex items-center justify-center gap-3 text-neutral-500 text-sm">
@@ -1369,6 +1520,8 @@ const App: React.FC = () => {
                  />
                 </Suspense>
                 </ThreeViewerErrorBoundary>
+                </div>
+                )}
              </div>
           ) : displayImage ? (
              <div className="relative w-full h-full flex flex-col items-center justify-start animate-in fade-in zoom-in duration-500 min-h-0">

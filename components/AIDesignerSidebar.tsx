@@ -182,14 +182,7 @@ const BrandLockup = ({ surface }: { surface: ChatSurface }) => (
       <Armchair size={surface === 'expanded' ? 24 : 22} strokeWidth={2.5} />
     </div>
     <div className="flex min-w-0 flex-col justify-center">
-      <h1
-        className="brand-wordmark"
-        style={{
-          fontSize: surface === 'expanded' ? '1.75rem' : '1.125rem',
-          letterSpacing: '-0.02em',
-          lineHeight: 1,
-        }}
-      >
+      <h1 className={`brand-wordmark brand-wordmark--chat ${surface === 'expanded' ? 'brand-wordmark--chat-expanded' : ''}`}>
         <span className="brand-room">Room</span><span className="brand-wise">Wise</span>
       </h1>
       <span className={`${surface === 'expanded' ? 'mt-1 text-[11px]' : 'mt-1 text-[10px]'} truncate font-bold uppercase leading-none tracking-[0.08em] text-neutral-500`}>
@@ -645,7 +638,11 @@ const AIDesignerSidebar: React.FC<Props> = ({
           },
         ]);
       } catch (e: any) {
-        setError('平面圖分析失敗：' + (e.message || '請再試一次'));
+        const message = String(e?.message || '');
+        const friendlyMessage = message.includes('503') || message.includes('UNAVAILABLE') || message.includes('high demand')
+          ? 'AI 平面圖分析暫時繁忙，稍後可再試。你仍可先用 3D 空間配置中的「平面圖空屋」建立空屋模型。'
+          : message || '請再試一次';
+        setError('平面圖分析失敗：' + friendlyMessage);
       } finally {
         setAnalyzingRooms(false);
       }
