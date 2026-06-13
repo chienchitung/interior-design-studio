@@ -1,4 +1,4 @@
-import { EmptySpaceIssue, EmptySpaceLayout, EmptySpaceWall } from '../types';
+import { EmptySpaceIssue, EmptySpaceLayout, EmptySpaceOpening, EmptySpaceWall } from '../types';
 
 type AxisBand = {
   start: number;
@@ -372,6 +372,7 @@ const buildLayoutIssues = (
   walls: EmptySpaceWall[],
   scaleConfidence: EmptySpaceLayout['scale']['confidence'],
   darkPixelRatio: number,
+  openingCount: number,
 ): EmptySpaceIssue[] => {
   const issues: EmptySpaceIssue[] = [];
 
@@ -410,13 +411,23 @@ const buildLayoutIssues = (
       });
     });
 
-  issues.push({
-    id: 'openings-next-step',
-    severity: 'info',
-    targetType: 'opening',
-    title: '門窗尚待標記',
-    detail: '第一版先建立牆體白模；下一步會把門弧、窗框與牆上缺口轉成真正開口。',
-  });
+  if (openingCount === 0) {
+    issues.push({
+      id: 'openings-none',
+      severity: 'warning',
+      targetType: 'opening',
+      title: '未偵測到門口',
+      detail: '未能從牆線間隙找到門口。若平面圖牆線非純黑白或門弧覆蓋了缺口，可能影響偵測。',
+    });
+  } else {
+    issues.push({
+      id: 'openings-detected',
+      severity: 'info',
+      targetType: 'opening',
+      title: `偵測到 ${openingCount} 個開口`,
+      detail: '已從牆線間隙自動標記門口位置，3D 白模牆體會對應留出缺口。如有誤判可忽略。',
+    });
+  }
 
   return issues;
 };
@@ -468,6 +479,73 @@ export const rescaleEmptySpaceLayout = (
       averageWallConfidence: walls.reduce((sum, wall) => sum + (wall.confidence ?? 0), 0) / Math.max(1, walls.length),
     },
   };
+};
+
+const detectOpeningsInBands = (
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  horizontalBands: AxisBand[],
+  verticalBands: AxisBand[],
+  cmPerPixel: number,
+  centerX: number,
+  centerY: number,
+): EmptySpaceOpening[] => {
+  const minGapPx = Math.max(4, Math.round(52 / cmPerPixel));
+  const maxGapPx = Math.min(Math.round(160 / cmPerPixel), Math.round(Math.max(width, height) * 0.22));
+  // Don't count gaps within this many px of a band's end (those are wall terminations, not doors)
+  const edgeBuf = Math.max(8, Math.round(28 / cmPerPixel));
+  const results: EmptySpaceOpening[] = [];
+
+  const scanBand = (band: AxisBand, axis: 'horizontal' | 'vertical') => {
+    const bandCenter = (band.start + band.end) / 2;
+    const sampleHalf = Math.max(1, Math.floor((band.end - band.start + 1) * 0.45));
+    let gapStart = -1;
+
+    for (let pos = band.from; pos <= band.to; pos++) {
+      let hasDark = false;
+      for (let off = -sampleHalf; off <= sampleHalf && !hasDark; off++) {
+        const cross = Math.round(bandCenter) + off;
+        if (cross < 0) continue;
+        const idx = axis === 'horizontal'
+          ? (cross < height ? cross * width + pos : -1)
+          : (cross < width ? pos * width + cross : -1);
+        if (idx >= 0 && idx < mask.length && mask[idx]) hasDark = true;
+      }
+
+      if (!hasDark) {
+        if (gapStart < 0) gapStart = pos;
+      } else if (gapStart >= 0) {
+        const gapPx = pos - gapStart;
+        const fromEdge = Math.min(gapStart - band.from, band.to - pos);
+        if (gapPx >= minGapPx && gapPx <= maxGapPx && fromEdge >= edgeBuf) {
+          const gapCenter = (gapStart + pos) / 2;
+          results.push({
+            id: `op-${results.length + 1}`,
+            type: 'door',
+            x: axis === 'horizontal'
+              ? (gapCenter - centerX) * cmPerPixel
+              : (bandCenter - centerX) * cmPerPixel,
+            y: axis === 'horizontal'
+              ? (bandCenter - centerY) * cmPerPixel
+              : (gapCenter - centerY) * cmPerPixel,
+            widthCm: Math.max(52, gapPx * cmPerPixel),
+            rotation: axis === 'horizontal' ? 0 : Math.PI / 2,
+            confidence: 0.7,
+          });
+        }
+        gapStart = -1;
+      }
+    }
+  };
+
+  for (const band of horizontalBands) scanBand(band, 'horizontal');
+  for (const band of verticalBands) scanBand(band, 'vertical');
+
+  // Deduplicate: remove openings within 42cm of an earlier one
+  return results.filter((op, i) =>
+    !results.slice(0, i).some(other => Math.hypot(op.x - other.x, op.y - other.y) < 42)
+  );
 };
 
 export const analyzeFloorPlanForEmptySpace = async (file: File): Promise<EmptySpaceLayout> => {
@@ -587,7 +665,12 @@ export const analyzeFloorPlanForEmptySpace = async (file: File): Promise<EmptySp
       },
     }));
   const averageWallConfidence = walls.reduce((sum, wall) => sum + (wall.confidence ?? 0), 0) / Math.max(1, walls.length);
-  const issues = buildLayoutIssues(walls, 'estimated', darkCount / (width * height));
+  const openings = detectOpeningsInBands(
+    mask, width, height,
+    horizontalBands, verticalBands,
+    cmPerPixel, centerX, centerY,
+  );
+  const issues = buildLayoutIssues(walls, 'estimated', darkCount / (width * height), openings.length);
 
   return {
     source: 'floor_plan',
@@ -604,7 +687,7 @@ export const analyzeFloorPlanForEmptySpace = async (file: File): Promise<EmptySp
       drawingBoundsPx: { minX, minY, maxX, maxY },
     },
     walls,
-    openings: [],
+    openings,
     rooms: [],
     issues,
     diagnostics: {

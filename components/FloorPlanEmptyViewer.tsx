@@ -1,13 +1,48 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { EmptySpaceLayout } from '../types';
+import { EmptySpaceLayout, EmptySpaceOpening, EmptySpaceWall } from '../types';
 
 interface FloorPlanEmptyViewerProps {
   layout: EmptySpaceLayout;
 }
 
 const WALL_HEIGHT_M = 2.6;
+
+const projectOntoLine = (
+  px: number, pz: number,
+  x1: number, z1: number, x2: number, z2: number,
+): number | null => {
+  const dx = x2 - x1, dz = z2 - z1;
+  const len2 = dx * dx + dz * dz;
+  if (len2 < 1e-9) return null;
+  return ((px - x1) * dx + (pz - z1) * dz) / len2;
+};
+
+const getOpeningsOnWall = (
+  wall: EmptySpaceWall,
+  openings: EmptySpaceOpening[],
+  thicknessM: number,
+) => {
+  const x1 = wall.x1 / 100, z1 = wall.y1 / 100;
+  const x2 = wall.x2 / 100, z2 = wall.y2 / 100;
+  const wallLen = Math.hypot(x2 - x1, z2 - z1);
+  if (wallLen < 0.01) return [];
+
+  return openings
+    .filter(op => {
+      const t = projectOntoLine(op.x / 100, op.y / 100, x1, z1, x2, z2);
+      if (t === null || t <= 0.02 || t >= 0.98) return false;
+      const projX = x1 + t * (x2 - x1), projZ = z1 + t * (z2 - z1);
+      return Math.hypot(op.x / 100 - projX, op.y / 100 - projZ) < thicknessM + 0.3;
+    })
+    .map(op => {
+      const t = projectOntoLine(op.x / 100, op.y / 100, x1, z1, x2, z2)!;
+      const halfW = (op.widthCm / 100 / 2) / wallLen;
+      return { tStart: Math.max(0.01, t - halfW), tEnd: Math.min(0.99, t + halfW), op };
+    })
+    .sort((a, b) => a.tStart - b.tStart);
+};
 
 export const FloorPlanEmptyViewer: React.FC<FloorPlanEmptyViewerProps> = ({ layout }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -70,35 +105,100 @@ export const FloorPlanEmptyViewer: React.FC<FloorPlanEmptyViewerProps> = ({ layo
       roughness: 0.7,
     });
 
+    const doorFrameMat = new THREE.MeshStandardMaterial({ color: 0x888070, roughness: 0.55 });
+
+    // Build a list of points along a wall's path (straight, bezier, or polyline)
+    const getWallPoints = (wall: EmptySpaceWall): Array<{ x: number; z: number }> => {
+      const x1 = wall.x1 / 100, z1 = wall.y1 / 100;
+      const x2 = wall.x2 / 100, z2 = wall.y2 / 100;
+      const cps = wall.controlPoints;
+      if (!cps || cps.length === 0) return [{ x: x1, z: z1 }, { x: x2, z: z2 }];
+      if (cps.length === 1) {
+        const cpx = cps[0].x / 100, cpz = cps[0].y / 100;
+        const n = 10;
+        return Array.from({ length: n + 1 }, (_, i) => {
+          const t = i / n;
+          return {
+            x: (1 - t) * (1 - t) * x1 + 2 * (1 - t) * t * cpx + t * t * x2,
+            z: (1 - t) * (1 - t) * z1 + 2 * (1 - t) * t * cpz + t * t * z2,
+          };
+        });
+      }
+      return [{ x: x1, z: z1 }, ...cps.map(cp => ({ x: cp.x / 100, z: cp.y / 100 })), { x: x2, z: z2 }];
+    };
+
     for (const wall of layout.walls) {
-      const x1 = wall.x1 / 100;
-      const z1 = wall.y1 / 100;
-      const x2 = wall.x2 / 100;
-      const z2 = wall.y2 / 100;
-      const dx = x2 - x1;
-      const dz = z2 - z1;
-      const length = Math.hypot(dx, dz);
-      if (length < 0.2) continue;
-
+      const pts = getWallPoints(wall);
       const thickness = Math.max(0.08, Math.min(0.22, wall.thicknessCm / 100));
-      const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(length, WALL_HEIGHT_M, thickness),
-        wallMat,
-      );
-      mesh.position.set((x1 + x2) / 2, WALL_HEIGHT_M / 2, (z1 + z2) / 2);
-      mesh.rotation.y = -Math.atan2(dz, dx);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      scene.add(mesh);
 
-      const cap = new THREE.Mesh(
-        new THREE.BoxGeometry(length, 0.035, thickness + 0.012),
-        capMat,
-      );
-      cap.position.set(mesh.position.x, WALL_HEIGHT_M + 0.017, mesh.position.z);
-      cap.rotation.y = mesh.rotation.y;
-      cap.castShadow = true;
-      scene.add(cap);
+      // For opening detection, use straight-line endpoints only
+      const wallOpenings = getOpeningsOnWall(wall, layout.openings, thickness);
+
+      // Render each sub-segment of the wall path
+      for (let pi = 0; pi < pts.length - 1; pi++) {
+        const x1 = pts[pi].x, z1 = pts[pi].z;
+        const x2 = pts[pi + 1].x, z2 = pts[pi + 1].z;
+        const dx = x2 - x1, dz = z2 - z1;
+        const segLen = Math.hypot(dx, dz);
+        if (segLen < 0.05) continue;
+        const angle = -Math.atan2(dz, dx);
+
+        // Only apply opening cuts on the first (and only) segment of straight walls
+        const isCurved = (wall.controlPoints?.length ?? 0) > 0;
+        const openingsForSeg = (!isCurved && pi === 0) ? wallOpenings : [];
+
+        const subSegments: Array<{ t0: number; t1: number }> = [];
+        let cur = 0;
+        for (const { tStart, tEnd } of openingsForSeg) {
+          if (tStart > cur + 0.01) subSegments.push({ t0: cur, t1: tStart });
+          cur = tEnd;
+        }
+        if (cur < 0.99) subSegments.push({ t0: cur, t1: 1 });
+        if (subSegments.length === 0) subSegments.push({ t0: 0, t1: 1 });
+
+        for (const { t0, t1 } of subSegments) {
+          const sx1 = x1 + t0 * dx, sz1 = z1 + t0 * dz;
+          const sx2 = x1 + t1 * dx, sz2 = z1 + t1 * dz;
+          const len = Math.hypot(sx2 - sx1, sz2 - sz1);
+          if (len < 0.05) continue;
+
+          const mesh = new THREE.Mesh(new THREE.BoxGeometry(len, WALL_HEIGHT_M, thickness), wallMat);
+          mesh.position.set((sx1 + sx2) / 2, WALL_HEIGHT_M / 2, (sz1 + sz2) / 2);
+          mesh.rotation.y = angle;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          scene.add(mesh);
+
+          const cap = new THREE.Mesh(new THREE.BoxGeometry(len, 0.035, thickness + 0.012), capMat);
+          cap.position.set(mesh.position.x, WALL_HEIGHT_M + 0.017, mesh.position.z);
+          cap.rotation.y = angle;
+          cap.castShadow = true;
+          scene.add(cap);
+        }
+
+        // Door frame jambs (straight walls only)
+        for (const { tStart, tEnd, op } of openingsForSeg) {
+          const frameH = Math.min(WALL_HEIGHT_M, 2.15);
+          const frameW = Math.max(0.035, thickness * 0.18);
+          for (const t of [tStart, tEnd]) {
+            const fx = x1 + t * dx, fz = z1 + t * dz;
+            const jamb = new THREE.Mesh(new THREE.BoxGeometry(frameW, frameH, thickness + 0.02), doorFrameMat);
+            jamb.position.set(fx, frameH / 2, fz);
+            jamb.rotation.y = angle;
+            scene.add(jamb);
+          }
+          const tMid = (tStart + tEnd) / 2;
+          const openingLen = Math.hypot((x1 + tEnd * dx) - (x1 + tStart * dx), (z1 + tEnd * dz) - (z1 + tStart * dz));
+          const lintel = new THREE.Mesh(
+            new THREE.BoxGeometry(openingLen + frameW, 0.12, thickness + 0.02),
+            doorFrameMat,
+          );
+          lintel.position.set(x1 + tMid * dx, frameH + 0.06, z1 + tMid * dz);
+          lintel.rotation.y = angle;
+          scene.add(lintel);
+          void op;
+        }
+      }
     }
 
     const maxDim = Math.max(widthM, depthM);
@@ -149,10 +249,10 @@ export const FloorPlanEmptyViewer: React.FC<FloorPlanEmptyViewerProps> = ({ layo
       <div className="pointer-events-none absolute left-4 top-4 rounded-lg border border-neutral-800 bg-neutral-950/80 px-3 py-2 text-xs text-neutral-300 shadow-xl shadow-black/30 backdrop-blur-md">
         <p className="font-bold text-white">空屋格局預覽</p>
         <p className="mt-1 text-[11px] text-neutral-500">
-          偵測牆體 {layout.walls.length} 段 · {layout.scale.confidence === 'calibrated' ? '比例已校正' : '比例待校正'}
+          牆體 {layout.walls.length} 段 · 開口 {layout.openings.length} 處
         </p>
         <p className="mt-0.5 text-[11px] text-neutral-600">
-          待確認 {layout.issues.filter(issue => issue.severity !== 'info').length} 項 · 平均信心 {Math.round(layout.diagnostics.averageWallConfidence * 100)}%
+          {layout.scale.confidence === 'calibrated' ? '比例已校正' : '比例待校正'} · 信心 {Math.round(layout.diagnostics.averageWallConfidence * 100)}%
         </p>
       </div>
     </div>

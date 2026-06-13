@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { DesignChecklistItem, DesignConfig, ProjectBrief } from '../types';
+import { DesignChecklistItem, DesignConfig, EmptySpaceLayout, EmptySpaceOpening, EmptySpaceWall, ProjectBrief } from '../types';
 
 const USER_API_KEY_STORAGE_KEY = 'interior-design-studio.geminiApiKey';
 const TEXT_MODEL = 'gemini-2.5-flash';
@@ -702,4 +702,233 @@ export const chatWithDesigner = async (
   } catch (error) {
     throw normalizeGeminiError(error);
   }
+};
+
+export const detectFloorPlanOpenings = async (
+  floorPlan: File,
+  layout: EmptySpaceLayout,
+): Promise<EmptySpaceOpening[]> => {
+  const ai = new GoogleGenAI({ apiKey: getGeminiApiKey() });
+  const imagePart = await fileToPart(floorPlan);
+
+  const prompt = `這是一張建築平面圖（2D 俯視圖）。請精確找出圖中所有「門口」的位置。
+
+【識別門口的視覺特徵，按可靠度排序】
+1. 門弧（最可靠）：牆線缺口旁有四分之一圓弧，代表門的開關軌跡
+2. 牆線中斷：粗實線（牆）中有明確缺口，缺口寬度約 70-110 cm
+3. 門檻細線：缺口兩端有短細線收邊
+
+【請勿標記以下項目】
+- 窗戶：牆面中間的開口，通常標有平行細線或玻璃符號，無圓弧
+- 純粹的牆線終端：牆的盡頭自然結束，不是門
+
+【座標定義】
+- x_pct / y_pct 以整張圖片為基準（0.0 = 最左/最上，1.0 = 最右/最下）
+- 回傳門口缺口的「中心點」，而非門弧的圓心
+
+請以 JSON 陣列回傳，每個門口包含：
+- x_pct：中心點 X 比例（小數）
+- y_pct：中心點 Y 比例（小數）
+- width_cm：門口寬度估計（公分；室內門約 80-90，主要入口約 90-100）
+- wall："H" 水平牆，"V" 垂直牆
+- confidence：偵測信心 0.0-1.0（有明確門弧填 0.9+，只有缺口無弧填 0.6-0.8）
+
+只回傳 JSON 陣列，不要任何說明文字，例：
+[{"x_pct":0.35,"y_pct":0.42,"width_cm":90,"wall":"H","confidence":0.95}]`;
+
+  const response = await ai.models.generateContent({
+    model: TEXT_MODEL,
+    contents: { parts: [imagePart, { text: prompt }] },
+  });
+
+  const raw = response.text?.trim() ?? '';
+  if (!raw) return [];
+
+  let jsonStr = raw;
+  const mdMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (mdMatch) jsonStr = mdMatch[1].trim();
+  const s = jsonStr.indexOf('['), e = jsonStr.lastIndexOf(']');
+  if (s < 0 || e <= s) return []; // model returned text but no JSON array — treat as empty
+
+  jsonStr = jsonStr.slice(s, e + 1);
+
+  let detected: Array<{ x_pct: number; y_pct: number; width_cm: number; wall: string; confidence?: number }>;
+  try {
+    detected = JSON.parse(jsonStr);
+  } catch {
+    return []; // malformed JSON from model — treat as empty rather than crashing
+  }
+  if (!Array.isArray(detected)) return [];
+
+  const { drawingBoundsPx, widthPx, heightPx } = layout.sourceImage;
+  const centerX = (drawingBoundsPx.minX + drawingBoundsPx.maxX) / 2;
+  const centerY = (drawingBoundsPx.minY + drawingBoundsPx.maxY) / 2;
+  const cpp = layout.scale.cmPerPixel;
+
+  return detected
+    .filter(d =>
+      typeof d.x_pct === 'number' &&
+      typeof d.y_pct === 'number' &&
+      (d.confidence ?? 0.8) >= 0.6
+    )
+    .map((d, i): EmptySpaceOpening => ({
+      id: `op-ai-${i + 1}`,
+      type: 'door',
+      x: (d.x_pct * widthPx - centerX) * cpp,
+      y: (d.y_pct * heightPx - centerY) * cpp,
+      widthCm: Math.max(60, Math.min(200, d.width_cm ?? 90)),
+      rotation: d.wall === 'V' ? Math.PI / 2 : 0,
+      confidence: d.confidence ?? 0.8,
+    }));
+};
+
+const getImageDimensions = (file: File): Promise<{ width: number; height: number }> =>
+  new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve({ width: img.naturalWidth, height: img.naturalHeight }); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('無法讀取圖片尺寸')); };
+    img.src = url;
+  });
+
+const AI_ANALYSIS_SIZE = 900;
+const AI_ASSUMED_LONG_SIDE_CM = 700;
+
+export const extractFloorPlanLayoutAI = async (file: File): Promise<EmptySpaceLayout> => {
+  const ai = new GoogleGenAI({ apiKey: getGeminiApiKey() });
+
+  const { width: origW, height: origH } = await getImageDimensions(file);
+  const scaleRatio = Math.min(1, AI_ANALYSIS_SIZE / Math.max(origW, origH));
+  const widthPx = Math.round(origW * scaleRatio);
+  const heightPx = Math.round(origH * scaleRatio);
+
+  const marginX = widthPx * 0.04;
+  const marginY = heightPx * 0.04;
+  const minX = marginX, minY = marginY;
+  const maxX = widthPx - marginX, maxY = heightPx - marginY;
+  const drawW = maxX - minX, drawH = maxY - minY;
+  const cmPerPixel = AI_ASSUMED_LONG_SIDE_CM / Math.max(drawW, drawH);
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+
+  const toCmX = (pct: number) => (pct * widthPx - cx) * cmPerPixel;
+  const toCmY = (pct: number) => (pct * heightPx - cy) * cmPerPixel;
+
+  const imagePart = await fileToPart(file);
+
+  const prompt = `你是一個建築平面圖解析專家。請仔細分析這張 2D 俯視平面圖，識別並提取所有「結構牆面」和「門口開口」。
+
+【牆面識別規則】
+- 只提取結構牆：圍成房間邊界的粗線、厚線（牆寬通常是尺寸標注線的 3-10 倍粗）
+- 忽略：傢俱輪廓線、尺寸標注線（帶箭頭或數字的細線）、填充線、文字說明、窗框線
+- 手繪圖時：集中辨識最粗最深的房間輪廓線，忽略輔助線和說明文字
+- 請提取所有牆線（通常 20-80 條），包括短牆、隔間牆
+
+【門口識別規則】
+- 最可靠：牆線缺口 + 旁邊有四分之一圓弧（門扇開閉軌跡）
+- 只標記有明確門弧或清楚缺口的位置，忽略窗戶（無門弧）
+
+【座標系統】
+- 以整張圖片為基準：左上角(0,0)，右下角(1,1)；x 向右，y 向下
+- 回傳牆線兩端點的比例座標（精確到小數點後3位）
+
+請只回傳以下嚴格 JSON 格式，不要任何說明文字：
+{"walls":[{"id":"w1","x1":0.050,"y1":0.100,"x2":0.950,"y2":0.100}],"openings":[{"id":"op1","x":0.450,"y":0.100,"width_cm":90,"dir":"H"}]}
+
+openings[].dir："H" 為水平牆上的開口，"V" 為垂直牆上的開口；width_cm 室內門約 80-90。`;
+
+  const response = await ai.models.generateContent({
+    model: TEXT_MODEL,
+    contents: { parts: [imagePart, { text: prompt }] },
+  });
+
+  const raw = response.text?.trim() ?? '';
+  if (!raw) throw new Error('AI 未回傳解析結果');
+
+  let jsonStr = raw;
+  const mdMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (mdMatch) {
+    jsonStr = mdMatch[1].trim();
+  } else {
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start !== -1 && end > start) jsonStr = raw.slice(start, end + 1);
+  }
+
+  let parsed: { walls?: unknown[]; openings?: unknown[] };
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch {
+    throw new Error('AI 回傳格式無法解析，請重試');
+  }
+
+  if (!Array.isArray(parsed?.walls) || parsed.walls.length === 0) {
+    throw new Error('AI 未能識別到牆面，請確認圖片清晰並重試');
+  }
+
+  type RawWall = { id?: string; x1?: number; y1?: number; x2?: number; y2?: number };
+  type RawOpening = { id?: string; x?: number; y?: number; width_cm?: number; dir?: string };
+
+  const thicknessPx = 8;
+  const walls: EmptySpaceWall[] = (parsed.walls as RawWall[])
+    .filter(w => typeof w.x1 === 'number' && typeof w.y1 === 'number' && typeof w.x2 === 'number' && typeof w.y2 === 'number')
+    .map((w, i) => {
+      const px1 = w.x1! * widthPx, py1 = w.y1! * heightPx;
+      const px2 = w.x2! * widthPx, py2 = w.y2! * heightPx;
+      return {
+        id: typeof w.id === 'string' ? w.id : `w${i + 1}`,
+        x1: toCmX(w.x1!), y1: toCmY(w.y1!),
+        x2: toCmX(w.x2!), y2: toCmY(w.y2!),
+        thicknessCm: thicknessPx * cmPerPixel,
+        confidence: 0.9,
+        pixel: { x1: px1, y1: py1, x2: px2, y2: py2, thicknessPx },
+      };
+    })
+    .filter(w => Math.hypot(w.x2 - w.x1, w.y2 - w.y1) > 15);
+
+  const openings: EmptySpaceOpening[] = ((parsed.openings ?? []) as RawOpening[])
+    .filter(op => typeof op.x === 'number' && typeof op.y === 'number')
+    .map((op, i) => ({
+      id: typeof op.id === 'string' ? op.id : `op-ai-${i + 1}`,
+      type: 'door' as const,
+      x: toCmX(op.x!),
+      y: toCmY(op.y!),
+      widthCm: typeof op.width_cm === 'number' ? Math.max(60, Math.min(200, op.width_cm)) : 90,
+      rotation: op.dir === 'V' ? Math.PI / 2 : 0,
+      confidence: 0.85,
+    }));
+
+  const allX = walls.flatMap(w => [w.x1, w.x2]);
+  const allY = walls.flatMap(w => [w.y1, w.y2]);
+  const bounds = {
+    minX: allX.length ? Math.min(...allX) - 20 : -100,
+    minY: allY.length ? Math.min(...allY) - 20 : -100,
+    maxX: allX.length ? Math.max(...allX) + 20 : 100,
+    maxY: allY.length ? Math.max(...allY) + 20 : 100,
+  };
+
+  return {
+    source: 'floor_plan',
+    imageName: file.name,
+    generatedAt: Date.now(),
+    scale: { cmPerPixel, confidence: 'estimated' },
+    bounds,
+    sourceImage: {
+      widthPx,
+      heightPx,
+      drawingBoundsPx: { minX, minY, maxX, maxY },
+    },
+    walls,
+    openings,
+    rooms: [],
+    issues: [],
+    diagnostics: {
+      imageWidth: widthPx,
+      imageHeight: heightPx,
+      darkPixelRatio: 0,
+      detectedHorizontalBands: 0,
+      detectedVerticalBands: 0,
+      averageWallConfidence: 0.9,
+    },
+  };
 };

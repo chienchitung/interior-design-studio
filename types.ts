@@ -106,6 +106,7 @@ export interface EmptySpaceWall {
   x2: number;
   y2: number;
   thicknessCm: number;
+  controlPoints?: { x: number; y: number }[];  // cm-space intermediate points for bent/curved walls
   confidence?: number;
   pixel?: {
     x1: number;
@@ -113,6 +114,7 @@ export interface EmptySpaceWall {
     x2: number;
     y2: number;
     thicknessPx: number;
+    controlPoints?: { x: number; y: number }[];  // pixel-space intermediate points
   };
 }
 

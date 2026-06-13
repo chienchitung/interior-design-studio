@@ -7,7 +7,7 @@ import { BrandLogo } from './components/BrandMark';
 import { FloorPlanAnalysisWorkbench } from './components/FloorPlanAnalysisWorkbench';
 import { DesignConfig, DesignStyle, RoomType, ROOM_TYPE_LABELS, DESIGN_STYLE_LABELS, DesignVersionRecord, ProjectBrief, EmptySpaceLayout } from './types';
 import { DESIGN_STYLES, ROOM_TYPES } from './constants';
-import { generateDesign, editDesignImage, extractSpatialContextForRendering, evaluateDesignChecklist } from './services/geminiService';
+import { generateDesign, editDesignImage, extractSpatialContextForRendering, evaluateDesignChecklist, detectFloorPlanOpenings, extractFloorPlanLayoutAI } from './services/geminiService';
 import { analyzeFloorPlanForEmptySpace, rescaleEmptySpaceLayout } from './services/floorPlanLayoutService';
 
 const ThreeRoomViewer = lazy(() =>
@@ -231,7 +231,9 @@ const App: React.FC = () => {
   });
   const [floorPlanLayout, setFloorPlanLayout] = useState<EmptySpaceLayout | null>(null);
   const [isAnalyzingFloorPlan, setIsAnalyzingFloorPlan] = useState(false);
+  const [isAIDetectingDoors, setIsAIDetectingDoors] = useState(false);
   const [floorPlanLayoutError, setFloorPlanLayoutError] = useState<string | null>(null);
+  const [workbenchTab, setWorkbenchTab] = useState<'analysis' | '3d'>('analysis');
 
   const hasSpaceReference = Boolean(config.floorPlan || config.realScenes.length > 0);
   const hasBrief = Boolean(currentProjectBrief?.summary || config.prompt.trim());
@@ -384,16 +386,46 @@ const App: React.FC = () => {
     if (!config.floorPlan || isAnalyzingFloorPlan) return;
 
     setIsAnalyzingFloorPlan(true);
+    setFloorPlanLayout(null);
     setFloorPlanLayoutError(null);
+    setWorkbenchTab('analysis');
+
+    const floorPlanFile = config.floorPlan;
+    let layout: EmptySpaceLayout | null = null;
+    let warnMsg: string | null = null;
+
+    // Primary: single AI call for walls + openings together
     try {
-      const layout = await analyzeFloorPlanForEmptySpace(config.floorPlan);
-      setFloorPlanLayout(layout);
-    } catch (err: any) {
-      setFloorPlanLayout(null);
-      setFloorPlanLayoutError(err?.message || '平面圖解析失敗，請換一張更清楚的圖。');
-    } finally {
-      setIsAnalyzingFloorPlan(false);
+      layout = await extractFloorPlanLayoutAI(floorPlanFile);
+    } catch (aiErr: any) {
+      // Fallback: pixel scan for walls, then AI door detection
+      try {
+        layout = await analyzeFloorPlanForEmptySpace(floorPlanFile);
+        try {
+          const aiOpenings = await detectFloorPlanOpenings(floorPlanFile, layout);
+          if (aiOpenings.length > 0) {
+            const merged = [...layout.openings];
+            for (const op of aiOpenings) {
+              if (!merged.some(m => Math.hypot(m.x - op.x, m.y - op.y) < 40)) merged.push(op);
+            }
+            layout = { ...layout, openings: merged };
+          }
+        } catch {
+          warnMsg = '開口偵測未完成，請手動加入門口。';
+        }
+        if (!warnMsg) {
+          warnMsg = `AI 全圖解析未完成，已改用像素掃描（${aiErr?.message ?? ''}）。`;
+        }
+      } catch (pixelErr: any) {
+        setFloorPlanLayoutError(pixelErr?.message || '平面圖解析失敗，請換一張更清楚的圖。');
+        setIsAnalyzingFloorPlan(false);
+        return;
+      }
     }
+
+    setFloorPlanLayout(layout);
+    if (warnMsg) setFloorPlanLayoutError(warnMsg);
+    setIsAnalyzingFloorPlan(false);
   };
 
   const handleCalibrateFloorPlanScale = (wallId: string, actualLengthCm: number) => {
@@ -423,6 +455,81 @@ const App: React.FC = () => {
         },
       };
     });
+  };
+
+  const handleUpdateFloorPlanWall = (
+    wallId: string,
+    pixel: { x1: number; y1: number; x2: number; y2: number; controlPoints?: { x: number; y: number }[] },
+  ) => {
+    setFloorPlanLayout(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        walls: prev.walls.map(w => {
+          if (w.id !== wallId || !w.pixel) return w;
+          const cpp = prev.scale.cmPerPixel;
+          const { drawingBoundsPx } = prev.sourceImage;
+          const cx = (drawingBoundsPx.minX + drawingBoundsPx.maxX) / 2;
+          const cy = (drawingBoundsPx.minY + drawingBoundsPx.maxY) / 2;
+          return {
+            ...w,
+            pixel: { ...w.pixel, ...pixel },
+            x1: (pixel.x1 - cx) * cpp,
+            y1: (pixel.y1 - cy) * cpp,
+            x2: (pixel.x2 - cx) * cpp,
+            y2: (pixel.y2 - cy) * cpp,
+            controlPoints: pixel.controlPoints?.map(pt => ({
+              x: (pt.x - cx) * cpp,
+              y: (pt.y - cy) * cpp,
+            })),
+          };
+        }),
+      };
+    });
+  };
+
+  const handleRemoveFloorPlanOpening = (openingId: string) => {
+    setFloorPlanLayout(prev => {
+      if (!prev) return prev;
+      return { ...prev, openings: prev.openings.filter(op => op.id !== openingId) };
+    });
+  };
+
+  const handleAddFloorPlanOpening = (opening: Omit<import('./types').EmptySpaceOpening, 'id'>) => {
+    setFloorPlanLayout(prev => {
+      if (!prev) return prev;
+      const newId = `op-manual-${Date.now()}`;
+      return { ...prev, openings: [...prev.openings, { ...opening, id: newId }] };
+    });
+  };
+
+  const handleAIDetectFloorPlanOpenings = async () => {
+    if (!config.floorPlan || !floorPlanLayout) return;
+    const detected = await detectFloorPlanOpenings(config.floorPlan, floorPlanLayout);
+    if (detected.length === 0) throw new Error('AI 未偵測到任何門口。請確認圖面清晰且有門弧標示。');
+    setFloorPlanLayout(prev => {
+      if (!prev) return prev;
+      // Merge with existing, skip duplicates within 40cm
+      const merged = [...prev.openings];
+      for (const op of detected) {
+        const isDup = merged.some(m => Math.hypot(m.x - op.x, m.y - op.y) < 40);
+        if (!isDup) merged.push(op);
+      }
+      return { ...prev, openings: merged };
+    });
+  };
+
+  const handleConfirmFloorPlanLayout = () => {
+    if (!floorPlanLayout) return;
+    const { bounds } = floorPlanLayout;
+    const widthCm = bounds.maxX - bounds.minX;
+    const depthCm = bounds.maxY - bounds.minY;
+    setRoomDimensions(prev => ({
+      ...prev,
+      length: (widthCm / 100).toFixed(1),
+      width: (depthCm / 100).toFixed(1),
+    }));
+    setThreeDSpaceSource('manual');
   };
 
   const handleGenerate = async () => {
@@ -1434,34 +1541,75 @@ const App: React.FC = () => {
                 ) : threeDSpaceSource === 'floor_plan' ? (
                   floorPlanLayout ? (
                     <div className="flex h-full w-full flex-col gap-2">
-                      <div className="flex flex-shrink-0 items-center justify-between gap-3 rounded-xl border border-neutral-800 bg-neutral-950/80 px-3 py-2 text-xs shadow-lg shadow-black/20">
+                      {/* Header: title + tab switcher + back */}
+                      <div className="flex flex-shrink-0 items-center justify-between gap-3 rounded-xl border border-neutral-800 bg-neutral-950/80 px-3 py-2 shadow-lg shadow-black/20">
                         <div className="min-w-0">
-                          <p className="font-bold text-white truncate">平面圖解析工作台</p>
+                          <p className="text-xs font-bold text-white truncate">平面圖解析工作台</p>
                           <p className="text-[11px] text-neutral-500 truncate">
-                            {floorPlanLayout.imageName} · 牆體 {floorPlanLayout.walls.length} 段 · 平均信心 {Math.round(floorPlanLayout.diagnostics.averageWallConfidence * 100)}% · {floorPlanLayout.scale.confidence === 'calibrated' ? '比例已校正' : '比例待校正'}
+                            {floorPlanLayout.imageName} · 牆體 {floorPlanLayout.walls.length} 段 · 開口 {floorPlanLayout.openings.length} 處 · {floorPlanLayout.scale.confidence === 'calibrated' ? '比例已校正' : '比例待校正'}
                           </p>
                         </div>
-                        <div className="flex flex-shrink-0 items-center gap-1.5">
+                        {/* Tab switcher */}
+                        <div className="flex items-center gap-0.5 rounded-lg border border-neutral-800 bg-neutral-900/80 p-0.5">
                           <button
-                            onClick={() => setThreeDSpaceSource(null)}
-                            className="rounded-full px-2.5 py-1 text-[11px] font-bold text-neutral-500 transition-colors hover:bg-neutral-900 hover:text-white"
+                            onClick={() => setWorkbenchTab('analysis')}
+                            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-bold transition-all ${
+                              workbenchTab === 'analysis'
+                                ? 'bg-white text-black shadow-sm'
+                                : 'text-neutral-400 hover:text-white'
+                            }`}
                           >
-                            返回
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+                            解析工作台
+                          </button>
+                          <button
+                            onClick={() => setWorkbenchTab('3d')}
+                            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-bold transition-all ${
+                              workbenchTab === '3d'
+                                ? 'bg-white text-black shadow-sm'
+                                : 'text-neutral-400 hover:text-white'
+                            }`}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2l8 4.5v9L12 20 4 15.5v-9L12 2z"/></svg>
+                            空屋預覽
                           </button>
                         </div>
+                        <button
+                          onClick={() => setThreeDSpaceSource(null)}
+                          className="flex-shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold text-neutral-500 transition-colors hover:bg-neutral-900 hover:text-white"
+                        >
+                          返回
+                        </button>
                       </div>
-                      <div className="grid min-h-0 flex-1 grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.45fr)]">
-                        {config.floorPlan && (
-                          <FloorPlanAnalysisWorkbench
-                            floorPlan={config.floorPlan}
-                            layout={floorPlanLayout}
-                            isAnalyzing={isAnalyzingFloorPlan}
-                            onCalibrateScale={handleCalibrateFloorPlanScale}
-                            onRemoveWall={handleRemoveFloorPlanWall}
-                            onReanalyze={handleAnalyzeFloorPlanLayout}
-                          />
-                        )}
-                        <div className="min-h-[280px] xl:min-h-0">
+
+                      {/* AI detection warning (non-blocking) */}
+                      {floorPlanLayoutError && (
+                        <div className="flex flex-shrink-0 items-start justify-between gap-2 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                          <span>{floorPlanLayoutError}</span>
+                          <button onClick={() => setFloorPlanLayoutError(null)} className="flex-shrink-0 text-amber-400/60 hover:text-amber-200">✕</button>
+                        </div>
+                      )}
+
+                      {/* Tab content */}
+                      <div className="min-h-0 flex-1">
+                        {workbenchTab === 'analysis' ? (
+                          config.floorPlan && (
+                            <FloorPlanAnalysisWorkbench
+                              floorPlan={config.floorPlan}
+                              layout={floorPlanLayout}
+                              isAnalyzing={isAnalyzingFloorPlan}
+                              isAIDetectingDoors={isAIDetectingDoors}
+                              onCalibrateScale={handleCalibrateFloorPlanScale}
+                              onRemoveWall={handleRemoveFloorPlanWall}
+                              onRemoveOpening={handleRemoveFloorPlanOpening}
+                              onAddOpening={handleAddFloorPlanOpening}
+                              onAIDetectOpenings={handleAIDetectFloorPlanOpenings}
+                              onUpdateWall={handleUpdateFloorPlanWall}
+                              onReanalyze={handleAnalyzeFloorPlanLayout}
+                              onConfirmLayout={handleConfirmFloorPlanLayout}
+                            />
+                          )
+                        ) : (
                           <Suspense fallback={
                             <div className="flex h-full items-center justify-center gap-3 rounded-xl border border-neutral-800 bg-neutral-950 text-sm text-neutral-500">
                               <div className="w-4 h-4 border-2 border-neutral-600 border-t-white rounded-full animate-spin" />
@@ -1470,7 +1618,7 @@ const App: React.FC = () => {
                           }>
                             <FloorPlanEmptyViewer layout={floorPlanLayout} />
                           </Suspense>
-                        </div>
+                        )}
                       </div>
                     </div>
                   ) : (
@@ -1504,13 +1652,23 @@ const App: React.FC = () => {
                             {floorPlanLayoutError}
                           </p>
                         )}
-                        <button
-                          onClick={handleAnalyzeFloorPlanLayout}
-                          disabled={!config.floorPlan || isAnalyzingFloorPlan}
-                          className="mt-3 w-full rounded-lg bg-white px-3 py-2 text-xs font-bold text-black transition-colors hover:bg-neutral-200 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
-                        >
-                          {isAnalyzingFloorPlan ? '解析中...' : '解析平面圖並建立空屋'}
-                        </button>
+
+                        {isAnalyzingFloorPlan && (
+                          <div className="mt-3 flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900/60 p-3 text-xs text-neutral-400">
+                            <div className="h-3 w-3 flex-shrink-0 animate-spin rounded-full border-2 border-neutral-600 border-t-white" />
+                            AI 解析牆面與開口中…
+                          </div>
+                        )}
+
+                        {!isAnalyzingFloorPlan && (
+                          <button
+                            onClick={handleAnalyzeFloorPlanLayout}
+                            disabled={!config.floorPlan}
+                            className="mt-3 w-full rounded-lg bg-white px-3 py-2 text-xs font-bold text-black transition-colors hover:bg-neutral-200 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+                          >
+                            解析平面圖並建立空屋
+                          </button>
+                        )}
                       </div>
                     </div>
                   )
