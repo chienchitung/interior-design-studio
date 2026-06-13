@@ -58,6 +58,7 @@ export const FloorPlanAnalysisWorkbench: React.FC<FloorPlanAnalysisWorkbenchProp
   const [livePixel, setLivePixel] = useState<PixelState | null>(null);  // for visual feedback
 
   const [addMode, setAddMode] = useState(false);
+  const [svgScale, setSvgScale] = useState(1);
   const [pendingPx, setPendingPx] = useState<{ x: number; y: number } | null>(null);
   const [pendingWidth, setPendingWidth] = useState('90');
   const [pendingOrientation, setPendingOrientation] = useState<'H' | 'V'>('H');
@@ -69,7 +70,7 @@ export const FloorPlanAnalysisWorkbench: React.FC<FloorPlanAnalysisWorkbenchProp
   }, [floorPlan]);
 
   useEffect(() => {
-    if (!layout.walls.some(w => w.id === selectedWallId)) {
+    if (selectedWallId !== '' && !layout.walls.some(w => w.id === selectedWallId)) {
       setSelectedWallId(layout.walls[0]?.id ?? '');
     }
   }, [layout.walls, selectedWallId]);
@@ -84,6 +85,20 @@ export const FloorPlanAnalysisWorkbench: React.FC<FloorPlanAnalysisWorkbenchProp
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [addMode, pendingPx, filterMode]);
+
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const srcW = Math.max(1, layout.sourceImage.widthPx);
+    const update = () => {
+      const rect = svg.getBoundingClientRect();
+      if (rect.width > 0) setSvgScale(rect.width / srcW);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(svg);
+    return () => ro.disconnect();
+  }, [layout.sourceImage.widthPx]);
 
   const selectedWall = useMemo(() => layout.walls.find(w => w.id === selectedWallId) ?? null, [layout.walls, selectedWallId]);
   const selectedOpening = useMemo(() => layout.openings.find(op => op.id === selectedOpeningId) ?? null, [layout.openings, selectedOpeningId]);
@@ -145,62 +160,65 @@ export const FloorPlanAnalysisWorkbench: React.FC<FloorPlanAnalysisWorkbenchProp
     controlPoints: wall.pixel?.controlPoints ? [...wall.pixel.controlPoints] : undefined,
   });
 
-  // Wall endpoint drag
+  // Attach drag listeners to document so fast mouse movements outside the SVG don't drop the drag.
+  const startDrag = (drag: WallDrag) => {
+    dragRef.current = drag;
+    livePixelRef.current = drag!.origPx;
+    setDragState(drag);
+    setLivePixel(drag!.origPx);
+
+    const onMove = (e: MouseEvent) => {
+      const d = dragRef.current;
+      if (!d || !svgRef.current) return;
+      const ctm = svgRef.current.getScreenCTM();
+      if (!ctm) return;
+      const dx = (e.clientX - d.startClientX) / ctm.a;
+      const dy = (e.clientY - d.startClientY) / ctm.d;
+      const { origPx, mode } = d;
+      let next: PixelState;
+      if (mode === 'start') {
+        next = { ...origPx, x1: origPx.x1 + dx, y1: origPx.y1 + dy };
+      } else if (mode === 'end') {
+        next = { ...origPx, x2: origPx.x2 + dx, y2: origPx.y2 + dy };
+      } else {
+        const cps = [...(origPx.controlPoints ?? [])];
+        cps[mode.index] = { x: cps[mode.index].x + dx, y: cps[mode.index].y + dy };
+        next = { ...origPx, controlPoints: cps };
+      }
+      livePixelRef.current = next;
+      setLivePixel(next);
+    };
+
+    const onUp = () => {
+      const d = dragRef.current;
+      const live = livePixelRef.current;
+      if (d && live && onUpdateWall) onUpdateWall(d.wallId, live);
+      dragRef.current = null;
+      livePixelRef.current = null;
+      setDragState(null);
+      setLivePixel(null);
+      document.body.style.cursor = '';
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+
+    document.body.style.cursor = 'grabbing';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+
   const handleEndpointMouseDown = (e: React.MouseEvent, wallId: string, endpoint: 'start' | 'end') => {
     e.stopPropagation(); e.preventDefault();
     const wall = layout.walls.find(w => w.id === wallId);
     if (!wall?.pixel) return;
-    const origPx = getOrigPx(wall);
-    const ds: WallDrag = { wallId, mode: endpoint, startClientX: e.clientX, startClientY: e.clientY, origPx };
-    dragRef.current = ds;          // synchronous — visible in the very next mousemove
-    livePixelRef.current = origPx;
-    setDragState(ds);
-    setLivePixel(origPx);
+    startDrag({ wallId, mode: endpoint, startClientX: e.clientX, startClientY: e.clientY, origPx: getOrigPx(wall) });
   };
 
   const handleControlPointMouseDown = (e: React.MouseEvent, wallId: string, index: number) => {
     e.stopPropagation(); e.preventDefault();
     const wall = layout.walls.find(w => w.id === wallId);
     if (!wall?.pixel) return;
-    const origPx = getOrigPx(wall);
-    const ds: WallDrag = { wallId, mode: { type: 'control', index }, startClientX: e.clientX, startClientY: e.clientY, origPx };
-    dragRef.current = ds;
-    livePixelRef.current = origPx;
-    setDragState(ds);
-    setLivePixel(origPx);
-  };
-
-  const handleSvgMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (addMode) return;
-    const drag = dragRef.current;           // read ref — always current, no stale closure
-    if (!drag || !svgRef.current) return;
-    const ctm = svgRef.current.getScreenCTM();
-    if (!ctm) return;
-    const dx = (e.clientX - drag.startClientX) / ctm.a;
-    const dy = (e.clientY - drag.startClientY) / ctm.d;
-    const { origPx, mode } = drag;
-    let next: PixelState;
-    if (mode === 'start') {
-      next = { ...origPx, x1: origPx.x1 + dx, y1: origPx.y1 + dy };
-    } else if (mode === 'end') {
-      next = { ...origPx, x2: origPx.x2 + dx, y2: origPx.y2 + dy };
-    } else {
-      const cps = [...(origPx.controlPoints ?? [])];
-      cps[mode.index] = { x: cps[mode.index].x + dx, y: cps[mode.index].y + dy };
-      next = { ...origPx, controlPoints: cps };
-    }
-    livePixelRef.current = next;
-    setLivePixel(next);                     // triggers re-render for visual feedback
-  };
-
-  const handleSvgMouseUp = () => {
-    const drag = dragRef.current;
-    const live = livePixelRef.current;
-    if (drag && live && onUpdateWall) onUpdateWall(drag.wallId, live);
-    dragRef.current = null;
-    livePixelRef.current = null;
-    setDragState(null);
-    setLivePixel(null);
+    startDrag({ wallId, mode: { type: 'control', index }, startClientX: e.clientX, startClientY: e.clientY, origPx: getOrigPx(wall) });
   };
 
   // Add a bend point at the midpoint of the selected wall
@@ -351,13 +369,10 @@ export const FloorPlanAnalysisWorkbench: React.FC<FloorPlanAnalysisWorkbenchProp
             )}
             <svg
               ref={svgRef}
-              className={`absolute inset-0 h-full w-full ${addMode ? 'cursor-crosshair' : dragState ? 'cursor-grabbing' : ''}`}
+              className={`absolute inset-0 h-full w-full ${addMode ? 'cursor-crosshair' : ''}`}
               viewBox={`0 0 ${drawingWidth} ${drawingHeight}`}
               preserveAspectRatio="xMidYMid meet"
               onClick={handleSvgClick}
-              onMouseMove={handleSvgMouseMove}
-              onMouseUp={handleSvgMouseUp}
-              onMouseLeave={handleSvgMouseUp}
             >
               {/* Walls */}
               {layout.walls.map(wall => {
@@ -385,28 +400,33 @@ export const FloorPlanAnalysisWorkbench: React.FC<FloorPlanAnalysisWorkbenchProp
                           strokeLinecap="round" opacity={opacity} pointerEvents="none" />
                     }
                     {/* Endpoint drag handles */}
-                    {selected && !addMode && onUpdateWall && (
-                      <>
-                        <circle cx={px.x1} cy={px.y1} r={7} fill="#facc15" stroke="#000" strokeWidth={1.5}
-                          className="cursor-grab active:cursor-grabbing"
-                          onMouseDown={e => handleEndpointMouseDown(e, wall.id, 'start')} />
-                        <circle cx={px.x2} cy={px.y2} r={7} fill="#facc15" stroke="#000" strokeWidth={1.5}
-                          className="cursor-grab active:cursor-grabbing"
-                          onMouseDown={e => handleEndpointMouseDown(e, wall.id, 'end')} />
-                        {/* Control point handles */}
-                        {px.controlPoints?.map((cp, ci) => (
-                          <g key={ci}>
-                            <line x1={ci === 0 ? px.x1 : (px.controlPoints![ci - 1]?.x ?? px.x1)}
-                                  y1={ci === 0 ? px.y1 : (px.controlPoints![ci - 1]?.y ?? px.y1)}
-                                  x2={cp.x} y2={cp.y}
-                                  stroke="#a855f7" strokeWidth={1} strokeDasharray="3 2" opacity={0.5} pointerEvents="none" />
-                            <circle cx={cp.x} cy={cp.y} r={6} fill="#a855f7" stroke="#000" strokeWidth={1.5}
-                              className="cursor-grab active:cursor-grabbing"
-                              onMouseDown={e => handleControlPointMouseDown(e, wall.id, ci)} />
-                          </g>
-                        ))}
-                      </>
-                    )}
+                    {selected && !addMode && onUpdateWall && (() => {
+                      const hitR = Math.min(40, Math.max(8, 14 / svgScale));
+                      const visR = Math.min(16, Math.max(4, 6 / svgScale));
+                      const sw = Math.min(3, Math.max(0.5, 1.5 / svgScale));
+                      return (
+                        <>
+                          <circle cx={px.x1} cy={px.y1} r={hitR} fill="transparent"
+                            className="cursor-grab" onMouseDown={e => handleEndpointMouseDown(e, wall.id, 'start')} />
+                          <circle cx={px.x1} cy={px.y1} r={visR} fill="#facc15" stroke="#000" strokeWidth={sw} pointerEvents="none" />
+                          <circle cx={px.x2} cy={px.y2} r={hitR} fill="transparent"
+                            className="cursor-grab" onMouseDown={e => handleEndpointMouseDown(e, wall.id, 'end')} />
+                          <circle cx={px.x2} cy={px.y2} r={visR} fill="#facc15" stroke="#000" strokeWidth={sw} pointerEvents="none" />
+                          {/* Control point handles */}
+                          {px.controlPoints?.map((cp, ci) => (
+                            <g key={ci}>
+                              <line x1={ci === 0 ? px.x1 : (px.controlPoints![ci - 1]?.x ?? px.x1)}
+                                    y1={ci === 0 ? px.y1 : (px.controlPoints![ci - 1]?.y ?? px.y1)}
+                                    x2={cp.x} y2={cp.y}
+                                    stroke="#a855f7" strokeWidth={Math.max(0.5, 1 / svgScale)} strokeDasharray="3 2" opacity={0.5} pointerEvents="none" />
+                              <circle cx={cp.x} cy={cp.y} r={hitR} fill="transparent"
+                                className="cursor-grab" onMouseDown={e => handleControlPointMouseDown(e, wall.id, ci)} />
+                              <circle cx={cp.x} cy={cp.y} r={Math.min(14, Math.max(3, 5 / svgScale))} fill="#a855f7" stroke="#000" strokeWidth={sw} pointerEvents="none" />
+                            </g>
+                          ))}
+                        </>
+                      );
+                    })()}
                   </g>
                 );
               })}
@@ -425,11 +445,11 @@ export const FloorPlanAnalysisWorkbench: React.FC<FloorPlanAnalysisWorkbenchProp
                     />
                     <line
                       x1={op.x1} y1={op.y1} x2={op.x2} y2={op.y2}
-                      stroke={color} strokeWidth={selected ? 3.5 : 2.5} strokeLinecap="round"
-                      strokeDasharray={dashed ? '5 3' : undefined}
+                      stroke={color} strokeWidth={Math.max(0.5, (selected ? 3 : 2) / svgScale)} strokeLinecap="round"
+                      strokeDasharray={dashed ? `${5 / svgScale} ${3 / svgScale}` : undefined}
                       opacity={opacity} pointerEvents="none"
                     />
-                    <circle cx={op.cx} cy={op.cy} r={selected ? 5 : 3.5} fill={color} opacity={opacity} pointerEvents="none" />
+                    <circle cx={op.cx} cy={op.cy} r={Math.min(12, Math.max(2, (selected ? 5 : 3.5) / svgScale))} fill={color} opacity={opacity} pointerEvents="none" />
                   </g>
                 );
               })}

@@ -1147,8 +1147,8 @@ const AIDesignerSidebar: React.FC<Props> = ({
       </div>
 
       {isChatExpanded && createPortal(
-        <div className="fixed inset-0 z-[220] flex flex-col bg-neutral-950">
-          <div className="flex-shrink-0 border-b border-neutral-800 bg-neutral-950">
+        <div className="fixed inset-0 z-[220] flex flex-col bg-neutral-900">
+          <div className="flex-shrink-0 border-b border-neutral-800 bg-neutral-900">
             <div className="mx-auto flex min-h-[88px] w-full max-w-6xl items-center justify-between gap-4 px-5 py-4 sm:px-8">
               <BrandLockup surface="expanded" />
               <button
