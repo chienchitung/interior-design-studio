@@ -4,12 +4,86 @@ body {
   color: #ffffff;
 }
 
+.brand-icon {
+  display: block;
+  flex-shrink: 0;
+  width: var(--brand-icon-size, 2.5rem);
+  height: var(--brand-icon-size, 2.5rem);
+  object-fit: contain;
+  filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.22));
+}
+
+.brand-icon--hero {
+  --brand-icon-size: 4rem;
+  margin: 0 auto 1.5rem;
+}
+
+.brand-icon--sidebar,
+.brand-icon--chat {
+  --brand-icon-size: 2.5rem;
+}
+
+.brand-icon--chat-expanded {
+  --brand-icon-size: 3rem;
+}
+
+.brand-logo {
+  display: block;
+  width: var(--brand-logo-width, 18.75rem);
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 1;
+  object-fit: contain;
+}
+
+.brand-logo--hero {
+  --brand-logo-width: min(100%, 18.75rem);
+  margin: 0 auto;
+}
+
+.brand-logo--sidebar,
+.brand-logo--chat {
+  --brand-logo-width: 12rem;
+}
+
+.brand-logo--chat-expanded {
+  --brand-logo-width: 13.5rem;
+}
+
 .brand-wordmark {
-  font-family: 'Manrope', sans-serif;
+  font-family: 'Montserrat', 'Manrope', sans-serif;
   font-size: var(--brand-wordmark-size, clamp(2.25rem, 6vw, 3rem));
   letter-spacing: 0;
   line-height: 1;
   display: block;
+}
+
+.brand-lockup {
+  --brand-tagline-gap: 0.18rem;
+  --brand-tagline-size: 0.625rem;
+  --brand-lockup-offset-y: 0.08em;
+  display: inline-block;
+  position: relative;
+  width: max-content;
+  max-width: 100%;
+  padding-bottom: calc(var(--brand-tagline-size) + var(--brand-tagline-gap));
+  transform: translateY(var(--brand-lockup-offset-y));
+}
+
+.brand-lockup--hero {
+  --brand-tagline-gap: 0.45rem;
+  --brand-tagline-size: 0.875rem;
+}
+
+.brand-lockup--sidebar,
+.brand-lockup--chat {
+  --brand-tagline-gap: 0.16rem;
+  --brand-tagline-size: 0.43rem;
+}
+
+.brand-lockup--chat-expanded {
+  --brand-tagline-gap: 0.18rem;
+  --brand-tagline-size: 0.5rem;
 }
 
 .brand-wordmark--sidebar {
@@ -27,29 +101,50 @@ body {
 .brand-room,
 .brand-wise {
   display: inline-block;
-  font-family: 'Manrope', sans-serif;
+  font-family: 'Montserrat', 'Manrope', sans-serif;
 }
 
 .brand-room {
-  font-weight: 500;
-  color: #a8a29e;
+  font-weight: 800;
+  color: #faf8f2;
 }
 
 .brand-wise {
   margin-left: 0.015em;
-  font-weight: 800;
-  color: #ffffff;
+  font-weight: 900;
+  color: #96a585;
 }
 
 .brand-subtitle {
-  font-family: 'Manrope', sans-serif;
+  font-family: 'Poppins', 'Inter', sans-serif;
   font-size: 0.875rem;
   font-weight: 400;
-  color: #737373;
-  letter-spacing: 0.04em;
+  color: #837c72;
+  letter-spacing: 0.36em;
   line-height: 1.7;
-  margin-top: 1rem;
+  margin-top: 0.55rem;
   margin-bottom: 2rem;
+}
+
+.brand-tagline {
+  font-family: 'Poppins', 'Inter', sans-serif;
+  color: #837c72;
+  font-size: var(--brand-tagline-size);
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: space-between;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.brand-tagline__space {
+  flex: 0 0 0.42em;
 }
 
 ::-webkit-scrollbar {

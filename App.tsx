@@ -3,6 +3,7 @@ import { Wand2, Download, Maximize2, RefreshCw, Key, ChevronRight, CheckCircle2,
 import ImageUpload from './components/ImageUpload';
 import Button from './components/Button';
 import AIDesignerSidebar from './components/AIDesignerSidebar';
+import { BrandLogo } from './components/BrandMark';
 import { FloorPlanAnalysisWorkbench } from './components/FloorPlanAnalysisWorkbench';
 import { DesignConfig, DesignStyle, RoomType, ROOM_TYPE_LABELS, DESIGN_STYLE_LABELS, DesignVersionRecord, ProjectBrief, EmptySpaceLayout } from './types';
 import { DESIGN_STYLES, ROOM_TYPES } from './constants';
@@ -608,15 +609,7 @@ const App: React.FC = () => {
         </div>
 
         <div className="max-w-md w-full bg-neutral-900/80 backdrop-blur-xl border border-neutral-800 rounded-2xl p-8 shadow-2xl z-10 text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white text-black mb-6 shadow-lg shadow-white/10">
-            <Armchair size={32} />
-          </div>
-          <h1 className="brand-wordmark">
-            <span className="brand-room">Room</span><span className="brand-wise">Wise</span>
-          </h1>
-          <p className="brand-subtitle">
-            專業級 AI 空間視覺化工具
-          </p>
+          <BrandLogo className="brand-logo--hero" />
 
           {/* Feature highlights */}
           <div className="mt-6 mb-6 grid grid-cols-3 gap-2 text-left">
@@ -972,15 +965,7 @@ const App: React.FC = () => {
       }`}>
 	        <div className="p-6 border-b border-neutral-800 sticky top-0 bg-neutral-900/95 backdrop-blur-md z-10">
 	          <div className="flex items-center gap-3 mb-1">
-	            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-lg shadow-white/5">
-	              <Armchair size={22} className="text-black" strokeWidth={2.5} />
-	            </div>
-	            <div className="flex flex-col justify-center h-10">
-	              <h1 className="brand-wordmark brand-wordmark--sidebar mb-1">
-                <span className="brand-room">Room</span><span className="brand-wise">Wise</span>
-              </h1>
-	              <span className="font-['Manrope'] text-[10px] font-bold tracking-[0.08em] text-neutral-500 uppercase leading-none">回答問題，上傳照片，就能開始規劃</span>
-	            </div>
+	            <BrandLogo className="brand-logo--sidebar" />
 	          </div>
 	          {/* Mode toggle */}
 	          <div className="flex items-center gap-1 mt-3 bg-neutral-950 p-1 rounded-xl border border-neutral-800">

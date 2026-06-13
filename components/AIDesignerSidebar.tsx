@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Send, RefreshCw, CheckCircle2, Loader2, LayoutDashboard, AlertCircle, ImageIcon, Paperclip, FileText, X, Maximize2, Minimize2, Armchair, Sparkles, ChevronDown, Archive } from 'lucide-react';
+import { Send, RefreshCw, CheckCircle2, Loader2, LayoutDashboard, AlertCircle, ImageIcon, Paperclip, FileText, X, Maximize2, Minimize2, Sparkles, ChevronDown, Archive } from 'lucide-react';
+import { BrandLogo } from './BrandMark';
 import {
   chatWithDesigner,
   summarizeHistory,
@@ -178,17 +179,7 @@ const TypingDots = ({ surface }: { surface: ChatSurface }) => (
 
 const BrandLockup = ({ surface }: { surface: ChatSurface }) => (
   <div className="flex min-w-0 items-center gap-3">
-    <div className={`${surface === 'expanded' ? 'h-12 w-12 rounded-2xl' : 'h-10 w-10 rounded-xl'} flex flex-shrink-0 items-center justify-center bg-white text-black shadow-lg shadow-white/5`}>
-      <Armchair size={surface === 'expanded' ? 24 : 22} strokeWidth={2.5} />
-    </div>
-    <div className="flex min-w-0 flex-col justify-center">
-      <h1 className={`brand-wordmark brand-wordmark--chat ${surface === 'expanded' ? 'brand-wordmark--chat-expanded' : ''}`}>
-        <span className="brand-room">Room</span><span className="brand-wise">Wise</span>
-      </h1>
-      <span className={`${surface === 'expanded' ? 'mt-1 text-[11px]' : 'mt-1 text-[10px]'} truncate font-bold uppercase leading-none tracking-[0.08em] text-neutral-500`}>
-        回答問題，上傳照片，就能開始規劃
-      </span>
-    </div>
+    <BrandLogo className={`brand-logo--chat ${surface === 'expanded' ? 'brand-logo--chat-expanded' : ''}`} />
   </div>
 );
 
